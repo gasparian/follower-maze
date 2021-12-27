@@ -21,6 +21,10 @@ const (
 	StatusUpdate = 83
 )
 
+var (
+	once sync.Once // NOTE: for debug only
+)
+
 type Event struct {
 	Raw        string
 	Number     uint64
@@ -36,15 +40,16 @@ func NewEvent(raw string) (*Event, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(parsed) == 3 {
+	if len(parsed) > 2 {
 		fromUserID, err = strconv.ParseUint(parsed[2], 10, 64)
 	}
-	if len(parsed) == 4 {
+	if len(parsed) > 3 {
 		toUserID, err = strconv.ParseUint(parsed[3], 10, 64)
 	}
 	if err != nil {
 		return nil, err
 	}
+	// log.Println("Parsed: ", parsed, fromUserID, toUserID)
 	return &Event{
 		Raw:        raw,
 		Number:     number,
@@ -54,7 +59,10 @@ func NewEvent(raw string) (*Event, error) {
 	}, nil
 }
 
-type Handler func(conn net.Conn, msgs []string)
+type Handler interface {
+	Handle(*FollowerServer, net.Conn, []string)
+	GetTypeName() string
+}
 
 type KVStore struct {
 	mx    sync.RWMutex
@@ -166,7 +174,7 @@ func (p *PriorityQueue) Pop() *Event {
 	return heap.Pop(p.events).(*Event)
 }
 
-func (p *PriorityQueue) Size() int {
+func (p *PriorityQueue) Len() int {
 	p.mx.RLock()
 	defer p.mx.RUnlock()
 	return p.events.Len()
@@ -180,38 +188,43 @@ func checkError(err error) {
 }
 
 type FollowerServer struct {
-	mx                    sync.RWMutex
-	clientsChans          *KVStore
-	followers             *KVStore
-	eventsQueue           *PriorityQueue
-	clientsChanBufferSize int
-	minQueueSize          int
-	clientPort            string
-	eventsPort            string
-	queueTimeoutMs        time.Duration
-	tcpReadTimeoutMs      time.Duration
-	healthCheckTimeoutMs  time.Duration
+	mx                  sync.RWMutex
+	clientsChans        *KVStore
+	followers           *KVStore
+	eventsQueue         *PriorityQueue
+	minQueueSize        int
+	maxBatchSizeBytes   int
+	clientPort          string
+	eventsPort          string
+	queueTimeoutMs      time.Duration
+	tcpReadTimeoutMs    time.Duration
+	healthCheckPeriodMs time.Duration
 }
 
-func NewFollowerServer(clientPort, eventsPort string) *FollowerServer {
+type FollowerServerConfig struct {
+	EventQueueMaxSize   int
+	MinQueueSize        int
+	ClientPort          string
+	EventsPort          string
+	QueueTimeoutMs      int
+	TcpReadTimeoutMs    int
+	HealthCheckPeriodMs int
+	MaxBatchSizeBytes   int
+}
+
+func NewFollowerServer(config *FollowerServerConfig) *FollowerServer {
 	return &FollowerServer{
-		clientsChans:          NewKVStore(),
-		followers:             NewKVStore(),
-		eventsQueue:           NewPriorityQueue(10000),
-		clientsChanBufferSize: 10,
-		minQueueSize:          100,
-		clientPort:            clientPort,
-		eventsPort:            eventsPort,
-		queueTimeoutMs:        1000 * time.Millisecond,
-		tcpReadTimeoutMs:      20000 * time.Millisecond,
-		healthCheckTimeoutMs:  100 * time.Millisecond,
+		clientsChans:        NewKVStore(),
+		followers:           NewKVStore(),
+		eventsQueue:         NewPriorityQueue(config.EventQueueMaxSize),
+		minQueueSize:        config.MinQueueSize,
+		maxBatchSizeBytes:   config.MaxBatchSizeBytes,
+		clientPort:          config.ClientPort,
+		eventsPort:          config.EventsPort,
+		queueTimeoutMs:      time.Duration(config.QueueTimeoutMs) * time.Millisecond,
+		tcpReadTimeoutMs:    time.Duration(config.TcpReadTimeoutMs) * time.Millisecond,
+		healthCheckPeriodMs: time.Duration(config.HealthCheckPeriodMs) * time.Millisecond,
 	}
-}
-
-func (f *FollowerServer) GetClientsChanBufferSize() int {
-	f.mx.RLock()
-	defer f.mx.RUnlock()
-	return f.clientsChanBufferSize
 }
 
 func (f *FollowerServer) GetTcpReadTimeoutMs() time.Duration {
@@ -220,30 +233,29 @@ func (f *FollowerServer) GetTcpReadTimeoutMs() time.Duration {
 	return f.tcpReadTimeoutMs
 }
 
-func (f *FollowerServer) GetHealthCheckTimeoutMs() time.Duration {
-	f.mx.RLock()
-	defer f.mx.RUnlock()
-	return f.healthCheckTimeoutMs
-}
-
-func (f *FollowerServer) handle(conn net.Conn, msgProcessor Handler) {
+func (f *FollowerServer) handle(conn net.Conn, connHandler Handler) {
 	conn.SetReadDeadline(time.Now().Add(f.GetTcpReadTimeoutMs()))
-	request := make([]byte, 128)
+	request := make([]byte, f.maxBatchSizeBytes)
 	defer conn.Close()
 	for {
 		read_len, err := conn.Read(request)
-
-		if (err != nil) || (read_len == 0) {
-			fmt.Fprint(os.Stderr, "Connection closed\n")
-			break
+		if err != nil {
+			conn.Close()
+			log.Printf("Connection of type `%s` closed: %v\n", connHandler.GetTypeName(), err)
+			// once.Do(func() {
+			// 	log.Printf(">>> QUEUE:\n")
+			// 	for f.eventsQueue.Len() > 0 {
+			// 		log.Printf("%v ", f.eventsQueue.Pop())
+			// 	}
+			// })
+			return
 		}
-
 		req := strings.Fields(string(request[:read_len]))
-		msgProcessor(conn, req)
+		connHandler.Handle(f, conn, req)
 	}
 }
 
-func (f *FollowerServer) startTCPServer(service string, msgProcessor Handler) {
+func (f *FollowerServer) startTCPServer(service string, connHandler Handler) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
@@ -254,83 +266,180 @@ func (f *FollowerServer) startTCPServer(service string, msgProcessor Handler) {
 		if err != nil {
 			continue
 		}
-		go f.handle(conn, msgProcessor)
+		go f.handle(conn, connHandler)
 	}
 }
 
-func (f *FollowerServer) eventProcessor(conn net.Conn, req []string) {
+type EventHandler string
+
+func NewEventHandler() EventHandler {
+	return EventHandler("EventHandler")
+}
+
+func (e EventHandler) GetTypeName() string {
+	return string(e)
+}
+
+func (e EventHandler) Handle(followerServer *FollowerServer, conn net.Conn, req []string) {
+	log.Println("Input events: ", req, "; Size: ", len(req))
 	for _, r := range req {
-		event, _ := NewEvent(r)
-		f.eventsQueue.Push(event)
-		log.Printf("%s -- %v -- %v\n", r, event, f.eventsQueue.Size())
+		event, err := NewEvent(r)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		followerServer.eventsQueue.Push(event)
+		// log.Printf("%s -- %v -- %v\n", r, event)
 	}
-	log.Println()
 }
 
-func (f *FollowerServer) clientProcessor(conn net.Conn, req []string) {
+type ClientHandler string
+
+func NewClientHandler() ClientHandler {
+	return ClientHandler("ClientHandler")
+}
+
+func (c ClientHandler) GetTypeName() string {
+	return string(c)
+}
+
+func (c ClientHandler) Handle(followerServer *FollowerServer, conn net.Conn, req []string) {
 	clientId, err := strconv.ParseUint(req[0], 10, 64)
 	if err != nil {
 		log.Println(err)
+		return
 	}
-	ch := make(chan *Event, f.GetClientsChanBufferSize())
-	f.clientsChans.Set(clientId, ch)
-	log.Println("New client connected: ", clientId, " ", f.clientsChans.Len())
-	for {
-		event, ok := <-ch
-		if !ok {
-			break
+	ch := make(chan Event)
+	followerServer.clientsChans.Set(clientId, ch)
+	followerServer.followers.Set(clientId, make(map[uint64]bool))
+	log.Println("New client connected: ", clientId)
+
+	go func() {
+		for {
+			select {
+			case event := <-ch:
+				conn.Write([]byte(event.Raw + "\n"))
+				// n, err := conn.Write([]byte(event.Raw + "\n"))
+				// log.Println(">>>> WRITE: ", clientId, ", ", event.Number, "; ", n, ", ", err)
+				// log.Printf("Client `%v` got event: `%v`\n", clientId, event.Raw)
+			default:
+				time.Sleep(1 * time.Millisecond)
+			}
 		}
-		log.Printf("Client %v for event: %v\n", clientId, event.Raw)
-		// TODO: check that client is alive and drop client id when the client is gone
+	}()
+}
+
+func (f *FollowerServer) transmitNextEvent() {
+	event := *f.eventsQueue.Pop()
+	log.Println(">>>>> <<<<<<: ", event.Raw)
+	if event.MsgType == Broadcast {
+		it, err := f.clientsChans.GetIterator()
+		if err != nil {
+			f.eventsQueue.Push(&event)
+			return
+		}
+		log.Println(">>>> FLAG; BROADCAST", event.Number)
+		for id, ok := it.Next(); ok; {
+			go func(id uint64) {
+				ch, ok := f.clientsChans.Get(id).(chan Event)
+				if !ok {
+					return
+				}
+				ch <- event
+			}(id)
+		}
+	} else if event.MsgType == Follow && event.FromUserID > 0 && event.ToUserID > 0 {
+		followers, ok := f.followers.Get(event.ToUserID).(map[uint64]bool)
+		if !ok {
+			f.eventsQueue.Push(&event)
+			return
+		}
+		followers[event.FromUserID] = true
+		f.followers.Set(event.ToUserID, followers)
+		ch := f.clientsChans.Get(event.ToUserID).(chan Event)
+		log.Println(">>>> FLAG; FOLLOW: ", event.Number, event.FromUserID, event.ToUserID)
+		go func() {
+			ch <- event
+		}()
+	} else if event.MsgType == PrivateMsg && event.FromUserID > 0 && event.ToUserID > 0 {
+		ch, ok := f.clientsChans.Get(event.ToUserID).(chan Event)
+		if !ok {
+			f.eventsQueue.Push(&event)
+			return
+		}
+		log.Println(">>>> FLAG; PRIVATE MSG: ", event.Number, event.FromUserID, event.ToUserID)
+		go func() {
+			ch <- event
+		}()
+	} else if event.MsgType == StatusUpdate && event.FromUserID > 0 {
+		followers, ok := f.followers.Get(event.FromUserID).(map[uint64]bool)
+		if !ok {
+			f.eventsQueue.Push(&event)
+			return
+		}
+		log.Println(">>>> FLAG; STATUS UPDATE: ", event.Number, event.FromUserID)
+		for follower := range followers {
+			go func(follower uint64) {
+				ch, ok := f.clientsChans.Get(follower).(chan Event)
+				if !ok {
+					return
+				}
+				ch <- event
+			}(follower)
+		}
+	} else if event.MsgType == Unfollow && event.FromUserID > 0 && event.ToUserID > 0 {
+		followers, ok := f.followers.Get(event.ToUserID).(map[uint64]bool)
+		if !ok {
+			f.eventsQueue.Push(&event)
+			return
+		}
+		log.Println(">>>> FLAG; UNFOLLOW: ", event.Number, event.FromUserID, event.ToUserID)
+		delete(followers, event.FromUserID)
 	}
 }
 
 func (f *FollowerServer) eventsTransmitter() {
-	var event *Event
-	var it KeysIterator
-	// var timerC <-chan time.Time
+	var timerC <-chan time.Time
 	f.mx.RLock()
-	// queueTimeoutMs := f.queueTimeoutMs
+	queueTimeoutMs := f.queueTimeoutMs
 	minQueueSize := f.minQueueSize
 	f.mx.RUnlock()
 	for {
-		// TODO: use this timer
-		// if f.eventsQueue.Size() == 0 {
-		// 	timerC = time.NewTimer(queueTimeoutMs).C
-		//  continue
-		// }
-		if f.eventsQueue.Size() >= minQueueSize {
-			event = f.eventsQueue.Pop()
-			// TODO: add conditions on each possible event state based on instructions set
-			if event.FromUserID == 0 && event.ToUserID == 0 {
-				it, _ = f.clientsChans.GetIterator()
-				for id, ok := it.Next(); ok; {
-					go func(id uint64) {
-						val := f.clientsChans.Get(id)
-						ch := val.(chan *Event)
-						ch <- event
-					}(id)
-				}
-			} else if event.MsgType == Follow && event.FromUserID > 0 && event.ToUserID > 0 {
-				// f.followers.Set(event.ToUserID, )
-			} else if event.MsgType == PrivateMsg && event.FromUserID > 0 && event.ToUserID > 0 {
-				// ...
-			} else if event.MsgType == StatusUpdate && event.FromUserID > 0 {
-				// ...
+		if f.eventsQueue.Len() == 0 {
+			timerC = time.NewTimer(queueTimeoutMs).C
+			continue
+		}
+		select {
+		case <-timerC:
+			f.transmitNextEvent()
+		default:
+			if f.eventsQueue.Len() >= minQueueSize {
+				f.transmitNextEvent()
 			}
 		}
 	}
 }
 
 func (f *FollowerServer) Start() {
-	go f.startTCPServer(f.clientPort, f.clientProcessor)
+	go f.startTCPServer(f.clientPort, NewClientHandler())
+	go f.startTCPServer(f.eventsPort, NewEventHandler())
 	go f.eventsTransmitter()
-	go f.startTCPServer(f.eventsPort, f.eventProcessor)
 	select {}
 }
 
 func main() {
 	runtime.GOMAXPROCS(2)
-	server := NewFollowerServer(":9099", ":9090")
+	server := NewFollowerServer(
+		&FollowerServerConfig{
+			EventQueueMaxSize:   10000,
+			MinQueueSize:        4,
+			MaxBatchSizeBytes:   1024,
+			ClientPort:          ":9099",
+			EventsPort:          ":9090",
+			QueueTimeoutMs:      1000,
+			TcpReadTimeoutMs:    20000,
+			HealthCheckPeriodMs: 1000,
+		},
+	)
 	server.Start()
 }
