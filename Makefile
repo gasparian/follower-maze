@@ -29,11 +29,11 @@ simulate:
 	./simulator/followermaze.sh
 
 simulate-test:
-	totalEvents=100 \
-	concurrencyLevel=2 \
-	numberOfUsers=2 \
+	totalEvents=5000 \
+	concurrencyLevel=10 \
+	numberOfUsers=10 \
 	timeout=5000 \
-	maxEventSourceBatchSize=4 \
+	maxEventSourceBatchSize=100 \
 	./simulator/followermaze.sh
 
 .PHONY: test
