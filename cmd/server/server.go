@@ -391,7 +391,7 @@ func (e EventHandler) GetTypeName() string {
 }
 
 func (e EventHandler) Handle(followerServer *FollowerServer, conn net.Conn, req []string) {
-	log.Println("Input events: ", req, "; Size: ", len(req))
+	// log.Println("Input events: ", req, "; Size: ", len(req))
 	parsed := make([]*Event, 0)
 	for _, r := range req {
 		event, err := NewEvent(r)
@@ -404,12 +404,13 @@ func (e EventHandler) Handle(followerServer *FollowerServer, conn net.Conn, req 
 	sort.Slice(parsed, func(i, j int) bool {
 		return parsed[i].Number < parsed[j].Number
 	})
-	log.Printf("Parsed events: ")
+	// log.Printf("Parsed events: ")
 	for _, p := range parsed {
 		followerServer.events.PushBack(p)
-		log.Printf("%v ", p)
+		// log.Printf("%v ", p)
 	}
-	log.Println()
+	// log.Println()
+
 	// go func() {
 	// 	log.Printf("Parsed events: ")
 	// 	for _, p := range parsed {
@@ -474,16 +475,16 @@ func (f *FollowerServer) transmitNextEvent(event *Event) error {
 			return err
 		}
 		// log.Println(">>>> FLAG; BROADCAST", event.Number)
-		go func() {
-			for id, ok := it.Next(); ok; {
-				pq, ok := f.clients.Get(id).(*PriorityQueue)
-				if !ok {
-					return
-				}
-				eventCpy := *event
-				pq.Push(&eventCpy)
+		// go func() {
+		for id, ok := it.Next(); ok; {
+			pq, ok := f.clients.Get(id).(*PriorityQueue)
+			if !ok {
+				return keyError
 			}
-		}()
+			eventCpy := *event
+			pq.Push(&eventCpy)
+		}
+		// }()
 	} else if event.MsgType == Follow && event.FromUserID > 0 && event.ToUserID > 0 {
 		followers, ok := f.followers.Get(event.ToUserID).(map[uint64]bool)
 		if !ok {
@@ -509,16 +510,16 @@ func (f *FollowerServer) transmitNextEvent(event *Event) error {
 			return keyError
 		}
 		// log.Println(">>>> FLAG; STATUS UPDATE: ", event.Number, event.FromUserID)
-		go func() {
-			for follower := range followers {
-				pq, ok := f.clients.Get(follower).(*PriorityQueue)
-				if !ok {
-					return
-				}
-				eventCpy := *event
-				pq.Push(&eventCpy)
+		// go func() {
+		for follower := range followers {
+			pq, ok := f.clients.Get(follower).(*PriorityQueue)
+			if !ok {
+				return keyError
 			}
-		}()
+			eventCpy := *event
+			pq.Push(&eventCpy)
+		}
+		// }()
 	} else if event.MsgType == Unfollow && event.FromUserID > 0 && event.ToUserID > 0 {
 		followers, ok := f.followers.Get(event.ToUserID).(map[uint64]bool)
 		if !ok {
