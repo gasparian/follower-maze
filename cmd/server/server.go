@@ -112,7 +112,7 @@ func (it KeysIterator) Next() (uint64, bool) {
 	return id, true
 }
 
-func (k *KVStore) GetIterator() (KeysIterator, error) {
+func (k *KVStore) GetIterator() KeysIterator {
 	k.mx.RLock()
 	defer k.mx.RUnlock()
 
@@ -123,7 +123,7 @@ func (k *KVStore) GetIterator() (KeysIterator, error) {
 		}
 		close(it)
 	}()
-	return it, nil
+	return it
 }
 
 type EventsMinHeap []*Event
@@ -453,12 +453,12 @@ func (c ClientHandler) Handle(followerServer *FollowerServer, conn net.Conn, req
 				_, err := conn.Write(buff.Bytes())
 				buff.Reset()
 				if err != nil {
-					log.Println(err)
 					followerServer.clients.Del(clientId)
 					followerServer.followers.Del(clientId)
+					log.Printf("Dropping client `%v` with error: %v", clientId, err)
 					return
 				}
-				log.Println(">>>> WRITE: ", clientId, ", ", event.Raw)
+				// log.Println(">>>> WRITE: ", clientId, ", ", event.Raw)
 				// log.Printf("Client `%v` got event: `%v`\n", clientId, event.Raw)
 				continue
 			}
@@ -470,10 +470,7 @@ func (c ClientHandler) Handle(followerServer *FollowerServer, conn net.Conn, req
 func (f *FollowerServer) transmitNextEvent(event *Event) error {
 	// log.Println(">>>>> <<<<<<: ", event.Raw)
 	if event.MsgType == Broadcast {
-		it, err := f.clients.GetIterator()
-		if err != nil {
-			return err
-		}
+		it := f.clients.GetIterator()
 		// log.Println(">>>> FLAG; BROADCAST", event.Number)
 		// go func() {
 		for id, ok := it.Next(); ok; {
@@ -482,6 +479,8 @@ func (f *FollowerServer) transmitNextEvent(event *Event) error {
 				return keyError
 			}
 			eventCpy := *event
+			// BUG: Broadcasted the same event to the same client over and over again
+			log.Println(">>>>>>>>>>>> FLAG ", id, "; ", event.Number)
 			pq.Push(&eventCpy)
 		}
 		// }()
@@ -534,14 +533,13 @@ func (f *FollowerServer) transmitNextEvent(event *Event) error {
 
 func (f *FollowerServer) eventsTransmitter() {
 	var event *Event
-	var err error
 	for {
 		if f.events.Len() > 0 {
 			event = f.events.Pop().(*Event)
-			err = f.transmitNextEvent(event)
-			if err != nil {
-				f.events.PushFront(event)
-			}
+			f.transmitNextEvent(event)
+			// if err != nil {
+			// 	f.events.PushFront(event)
+			// }
 			continue
 		}
 		time.Sleep(1 * time.Millisecond)
@@ -569,7 +567,7 @@ func (f *FollowerServer) Start() {
 }
 
 func main() {
-	runtime.GOMAXPROCS(2)
+	runtime.GOMAXPROCS(4)
 	server := NewFollowerServer(
 		&FollowerServerConfig{
 			EventsQueueMaxSize: 10000,
