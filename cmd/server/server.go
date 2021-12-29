@@ -275,6 +275,9 @@ func (p *PriorityQueue) Push(event *Event) {
 func (p *PriorityQueue) Pop() *Event {
 	p.mx.Lock()
 	defer p.mx.Unlock()
+	if p.events.Len() == 0 {
+		return nil
+	}
 	return heap.Pop(p.events).(*Event)
 }
 
@@ -446,8 +449,7 @@ func (c ClientHandler) Handle(followerServer *FollowerServer, conn net.Conn, req
 		var buff bytes.Buffer
 		var event *Event
 		for {
-			if pq.Len() > 0 {
-				event = pq.Pop()
+			if event = pq.Pop(); event != nil {
 				buff.WriteString(event.Raw)
 				buff.WriteRune('\n')
 				_, err := conn.Write(buff.Bytes())
@@ -458,7 +460,7 @@ func (c ClientHandler) Handle(followerServer *FollowerServer, conn net.Conn, req
 					log.Printf("Dropping client `%v` with error: %v", clientId, err)
 					return
 				}
-				// log.Println(">>>> WRITE: ", clientId, ", ", event.Raw)
+				log.Println(">>>> WRITE: ", clientId, ", ", event.Raw)
 				// log.Printf("Client `%v` got event: `%v`\n", clientId, event.Raw)
 				continue
 			}
@@ -472,18 +474,24 @@ func (f *FollowerServer) transmitNextEvent(event *Event) error {
 	if event.MsgType == Broadcast {
 		it := f.clients.GetIterator()
 		// log.Println(">>>> FLAG; BROADCAST", event.Number)
-		// go func() {
-		for id, ok := it.Next(); ok; {
+		wg := &sync.WaitGroup{}
+		for {
+			id, ok := it.Next()
+			if !ok {
+				break
+			}
 			pq, ok := f.clients.Get(id).(*PriorityQueue)
 			if !ok {
 				return keyError
 			}
 			eventCpy := *event
-			// BUG: Broadcasted the same event to the same client over and over again
-			log.Println(">>>>>>>>>>>> FLAG ", id, "; ", event.Number)
-			pq.Push(&eventCpy)
+			wg.Add(1)
+			go func(pq *PriorityQueue, event *Event) {
+				defer wg.Done()
+				pq.Push(event)
+			}(pq, &eventCpy)
 		}
-		// }()
+		wg.Wait()
 	} else if event.MsgType == Follow && event.FromUserID > 0 && event.ToUserID > 0 {
 		followers, ok := f.followers.Get(event.ToUserID).(map[uint64]bool)
 		if !ok {
@@ -509,16 +517,20 @@ func (f *FollowerServer) transmitNextEvent(event *Event) error {
 			return keyError
 		}
 		// log.Println(">>>> FLAG; STATUS UPDATE: ", event.Number, event.FromUserID)
-		// go func() {
+		wg := &sync.WaitGroup{}
 		for follower := range followers {
 			pq, ok := f.clients.Get(follower).(*PriorityQueue)
 			if !ok {
 				return keyError
 			}
 			eventCpy := *event
-			pq.Push(&eventCpy)
+			wg.Add(1)
+			go func(pq *PriorityQueue, event *Event) {
+				defer wg.Done()
+				pq.Push(&eventCpy)
+			}(pq, &eventCpy)
 		}
-		// }()
+		wg.Wait()
 	} else if event.MsgType == Unfollow && event.FromUserID > 0 && event.ToUserID > 0 {
 		followers, ok := f.followers.Get(event.ToUserID).(map[uint64]bool)
 		if !ok {
@@ -533,9 +545,10 @@ func (f *FollowerServer) transmitNextEvent(event *Event) error {
 
 func (f *FollowerServer) eventsTransmitter() {
 	var event *Event
+	var val interface{}
 	for {
-		if f.events.Len() > 0 {
-			event = f.events.Pop().(*Event)
+		if val = f.events.Pop(); val != nil {
+			event = val.(*Event)
 			f.transmitNextEvent(event)
 			// if err != nil {
 			// 	f.events.PushFront(event)
