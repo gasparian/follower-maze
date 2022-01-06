@@ -30,6 +30,11 @@ var (
 	keyError = errors.New("Key has not been found")
 )
 
+type Client struct {
+	ID uint64
+	Ch chan *Event
+}
+
 type Event struct {
 	Raw        string
 	Number     uint64
@@ -62,11 +67,6 @@ func NewEvent(raw string) (*Event, error) {
 		FromUserID: fromUserID,
 		ToUserID:   toUserID,
 	}, nil
-}
-
-type Handler interface {
-	Handle(*FollowerServer, net.Conn, []string)
-	GetTypeName() string
 }
 
 type KVStore struct {
@@ -295,12 +295,11 @@ func checkError(err error) {
 }
 
 type FollowerServer struct {
-	mx        sync.RWMutex
-	clients   *KVStore
-	followers *KVStore
-	events    *BoundedFifoQueue
-	// events             chan *Event
-	// eventsFailed       chan *Event
+	mx                 sync.RWMutex
+	clients            *KVStore
+	followers          *KVStore
+	eventsChan         chan *Event
+	clientsChan        chan *Client
 	maxBatchSizeBytes  int
 	eventsQueueMaxSize int
 	clientPort         string
@@ -318,11 +317,10 @@ type FollowerServerConfig struct {
 
 func NewFollowerServer(config *FollowerServerConfig) *FollowerServer {
 	return &FollowerServer{
-		clients:   NewKVStore(),
-		followers: NewKVStore(),
-		events:    NewBoundedQueue(config.EventsQueueMaxSize),
-		// events:             make(chan *Event, config.EventsQueueMaxSize),
-		// eventsFailed:       make(chan *Event, config.EventsQueueMaxSize),
+		clients:            NewKVStore(),
+		followers:          NewKVStore(),
+		eventsChan:         make(chan *Event, config.EventsQueueMaxSize),
+		clientsChan:        make(chan *Client),
 		maxBatchSizeBytes:  config.MaxBatchSizeBytes,
 		eventsQueueMaxSize: config.EventsQueueMaxSize,
 		clientPort:         config.ClientPort,
@@ -347,28 +345,80 @@ func GetFunctionName(i interface{}) string {
 	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
 }
 
-func (f *FollowerServer) handle(conn net.Conn, connHandler Handler) {
-	conn.SetDeadline(time.Now().Add(f.GetConnDeadlineMs()))
+func (f *FollowerServer) handleClient(conn net.Conn) {
 	request := make([]byte, f.maxBatchSizeBytes)
 	defer conn.Close()
 	for {
 		read_len, err := conn.Read(request)
 		if err != nil {
-			log.Printf("Connection of type `%s` closed: %v\n", connHandler.GetTypeName(), err)
-			// once.Do(func() {
-			// 	log.Printf(">>> QUEUE:\n")
-			// 	for f.events.Len() > 0 {
-			// 		log.Printf("%v ", f.events.Pop())
-			// 	}
-			// })
+			log.Printf("Client connection closed: %v\n", err)
 			return
 		}
 		req := strings.Fields(string(request[:read_len]))
-		connHandler.Handle(f, conn, req)
+		clientId, err := strconv.ParseUint(req[0], 10, 64)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		client := &Client{
+			ID: clientId,
+			Ch: make(chan *Event),
+		}
+		f.clientsChan <- client
+		var buff bytes.Buffer
+		var event *Event
+		for {
+			select {
+			case event = <-client.Ch:
+				buff.WriteString(event.Raw)
+				buff.WriteRune('\n')
+				_, err := conn.Write(buff.Bytes())
+				buff.Reset()
+				if err != nil {
+					f.clients.Del(clientId)
+					f.followers.Del(clientId)
+					log.Printf("Dropping client `%v` with error: %v", clientId, err)
+					return
+				}
+				log.Println(">>>> WRITE: ", clientId, ", ", event.Raw)
+				// log.Printf("Client `%v` got event: `%v`\n", clientId, event.Raw)
+				continue
+			default:
+				time.Sleep(1 * time.Millisecond)
+			}
+		}
 	}
 }
 
-func (f *FollowerServer) startTCPServer(service string, connHandler Handler) {
+func (f *FollowerServer) handleEvents(conn net.Conn) {
+	request := make([]byte, f.maxBatchSizeBytes)
+	defer conn.Close()
+	for {
+		read_len, err := conn.Read(request)
+		if err != nil {
+			log.Printf("Events connection closed: %v\n", err)
+			return
+		}
+		parsed := make([]*Event, 0)
+		req := strings.Fields(string(request[:read_len]))
+		for _, r := range req {
+			event, err := NewEvent(r)
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+			parsed = append(parsed, event)
+		}
+		sort.Slice(parsed, func(i, j int) bool {
+			return parsed[i].Number < parsed[j].Number
+		})
+		for _, p := range parsed {
+			f.eventsChan <- p
+		}
+	}
+}
+
+func (f *FollowerServer) startTCPServer(service string, connHandler func(net.Conn)) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
@@ -379,94 +429,9 @@ func (f *FollowerServer) startTCPServer(service string, connHandler Handler) {
 		if err != nil {
 			continue
 		}
-		go f.handle(conn, connHandler)
+		conn.SetDeadline(time.Now().Add(f.GetConnDeadlineMs()))
+		go connHandler(conn)
 	}
-}
-
-type EventHandler string
-
-func NewEventHandler() EventHandler {
-	return EventHandler("EventHandler")
-}
-
-func (e EventHandler) GetTypeName() string {
-	return string(e)
-}
-
-func (e EventHandler) Handle(followerServer *FollowerServer, conn net.Conn, req []string) {
-	// log.Println("Input events: ", req, "; Size: ", len(req))
-	parsed := make([]*Event, 0)
-	for _, r := range req {
-		event, err := NewEvent(r)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-		parsed = append(parsed, event)
-	}
-	sort.Slice(parsed, func(i, j int) bool {
-		return parsed[i].Number < parsed[j].Number
-	})
-	// log.Printf("Parsed events: ")
-	for _, p := range parsed {
-		followerServer.events.PushBack(p)
-		// log.Printf("%v ", p)
-	}
-	// log.Println()
-
-	// go func() {
-	// 	log.Printf("Parsed events: ")
-	// 	for _, p := range parsed {
-	// 		followerServer.events <- p
-	// 		log.Printf("%v ", p)
-	// 	}
-	// 	log.Println()
-	// }()
-}
-
-type ClientHandler string
-
-func NewClientHandler() ClientHandler {
-	return ClientHandler("ClientHandler")
-}
-
-func (c ClientHandler) GetTypeName() string {
-	return string(c)
-}
-
-func (c ClientHandler) Handle(followerServer *FollowerServer, conn net.Conn, req []string) {
-	clientId, err := strconv.ParseUint(req[0], 10, 64)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	pq := NewPriorityQueue(followerServer.GetEventsQueueMaxSize())
-	followerServer.clients.Set(clientId, pq)
-	followerServer.followers.Set(clientId, make(map[uint64]bool))
-	log.Println("New client connected: ", clientId)
-
-	go func() {
-		var buff bytes.Buffer
-		var event *Event
-		for {
-			if event = pq.Pop(); event != nil {
-				buff.WriteString(event.Raw)
-				buff.WriteRune('\n')
-				_, err := conn.Write(buff.Bytes())
-				buff.Reset()
-				if err != nil {
-					followerServer.clients.Del(clientId)
-					followerServer.followers.Del(clientId)
-					log.Printf("Dropping client `%v` with error: %v", clientId, err)
-					return
-				}
-				log.Println(">>>> WRITE: ", clientId, ", ", event.Raw)
-				// log.Printf("Client `%v` got event: `%v`\n", clientId, event.Raw)
-				continue
-			}
-			time.Sleep(1 * time.Millisecond)
-		}
-	}()
 }
 
 func (f *FollowerServer) transmitNextEvent(event *Event) error {
@@ -543,39 +508,27 @@ func (f *FollowerServer) transmitNextEvent(event *Event) error {
 	return nil
 }
 
-func (f *FollowerServer) eventsTransmitter() {
+func (f *FollowerServer) coordinator() {
 	var event *Event
-	var val interface{}
+	var err error
 	for {
-		if val = f.events.Pop(); val != nil {
-			event = val.(*Event)
-			f.transmitNextEvent(event)
-			// if err != nil {
-			// 	f.events.PushFront(event)
-			// }
+		select {
+		case event = <-f.eventsChan:
+			err = f.transmitNextEvent(event)
+			if err != nil {
+				log.Printf("Error transmitting event: %v\n", err)
+			}
 			continue
+		default:
+			time.Sleep(1 * time.Millisecond)
 		}
-		time.Sleep(1 * time.Millisecond)
-		// select {
-		// case event := <-f.events:
-		// 	err = f.transmitNextEvent(event)
-		// 	if err != nil {
-		// 		f.eventsFailed <- event
-		// 	}
-		// 	continue
-		// case event := <-f.eventsFailed:
-		// 	f.transmitNextEvent(event)
-		// 	continue
-		// default:
-		// 	time.Sleep(1 * time.Millisecond)
-		// }
 	}
 }
 
 func (f *FollowerServer) Start() {
-	go f.startTCPServer(f.clientPort, NewClientHandler())
-	go f.startTCPServer(f.eventsPort, NewEventHandler())
-	go f.eventsTransmitter()
+	go f.startTCPServer(f.clientPort, f.handleClient)
+	go f.startTCPServer(f.eventsPort, f.handleEvents)
+	go f.coordinator()
 	select {}
 }
 
