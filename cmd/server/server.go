@@ -236,7 +236,7 @@ func (f *FollowerServer) handleClient(conn net.Conn) {
 				return
 			}
 			// log.Println("DEBUG: >>>> WROTE: ", clientId, ", ", clientReq.Payload)
-		case <-timerChan:
+		case <-timerChan: // TODO: drop it
 			return
 		default:
 			time.Sleep(1 * time.Millisecond)
@@ -244,8 +244,13 @@ func (f *FollowerServer) handleClient(conn net.Conn) {
 	}
 }
 
+// TODO: read to buffer and then search for the delimiter
+//       and sort only certain batch size (like 100)
+//       if buffer ends not as \n delimiter -
+//       keep this part and concatenate it with the next
+//       chunk of data
 func (f *FollowerServer) handleEvents(conn net.Conn) {
-	request := make([]byte, f.maxBatchSizeBytes)
+	request := make([]byte, f.GetMaxBatchSize())
 	defer conn.Close()
 	for {
 		read_len, err := conn.Read(request)
@@ -397,6 +402,7 @@ func (f *FollowerServer) coordinator() {
 	}
 }
 
+// TODO: make handlers as abstractions and split them from the FollowerServer object (provide only interface)
 func (f *FollowerServer) Start() {
 	go f.startTCPServer(f.clientPort, f.handleClient)
 	go f.startTCPServer(f.eventsPort, f.handleEvents)
