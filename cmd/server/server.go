@@ -2,13 +2,10 @@ package main
 
 import (
 	"bytes"
-	"container/heap"
-	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
-	"reflect"
 	"runtime"
 	"sort"
 	"strconv"
@@ -26,14 +23,8 @@ const (
 )
 
 var (
-	once     sync.Once // NOTE: for debug only
-	keyError = errors.New("Key has not been found")
+	once sync.Once // NOTE: for debug only
 )
-
-type Client struct {
-	ID uint64
-	Ch chan *Event
-}
 
 type Event struct {
 	Raw        string
@@ -41,6 +32,11 @@ type Event struct {
 	MsgType    int
 	FromUserID uint64
 	ToUserID   uint64
+}
+
+type ClientRequest struct {
+	Payload  string
+	Response chan error
 }
 
 func NewEvent(raw string) (*Event, error) {
@@ -126,167 +122,6 @@ func (k *KVStore) GetIterator() KeysIterator {
 	return it
 }
 
-type EventsMinHeap []*Event
-
-func (h EventsMinHeap) Len() int {
-	return len(h)
-}
-
-func (h EventsMinHeap) Less(i, j int) bool {
-	return h[i].Number < h[j].Number
-}
-
-func (h EventsMinHeap) Swap(i, j int) {
-	h[i], h[j] = h[j], h[i]
-}
-
-func (h *EventsMinHeap) Push(x interface{}) {
-	*h = append(*h, x.(*Event))
-}
-
-func (h *EventsMinHeap) Pop() interface{} {
-	old := *h
-	tailIndex := old.Len() - 1
-	tail := old[tailIndex]
-	old[tailIndex] = nil
-	*h = old[:tailIndex]
-	return tail
-}
-
-type Node struct {
-	Val  interface{}
-	Next *Node
-	Prev *Node
-}
-
-type BoundedFifoQueue struct {
-	mx      sync.RWMutex
-	Head    *Node
-	Tail    *Node
-	MaxSize int
-	count   int
-}
-
-func NewBoundedQueue(maxSize int) *BoundedFifoQueue {
-	return &BoundedFifoQueue{
-		MaxSize: maxSize,
-	}
-}
-
-func (b *BoundedFifoQueue) PushBack(val interface{}) {
-	b.mx.Lock()
-	defer b.mx.Unlock()
-	if b.count == b.MaxSize {
-		oldHead := b.Head
-		b.Head = oldHead.Next
-		oldHead = nil
-		b.count--
-	}
-	newTail := &Node{Val: val, Prev: b.Tail}
-	if b.count > 0 {
-		oldTail := b.Tail
-		oldTail.Next = newTail
-		b.Tail = newTail
-	} else {
-		b.Head = newTail
-	}
-	b.Tail = newTail
-	b.count++
-}
-
-func (b *BoundedFifoQueue) PushFront(val interface{}) {
-	b.mx.Lock()
-	defer b.mx.Unlock()
-	if b.count == b.MaxSize {
-		oldTail := b.Tail
-		b.Tail = oldTail.Prev
-		oldTail = nil
-		b.count--
-	}
-	newHead := &Node{Val: val, Next: b.Head}
-	if b.count > 0 {
-		oldHead := b.Head
-		oldHead.Prev = newHead
-	} else {
-		b.Tail = newHead
-	}
-	b.Head = newHead
-	b.count++
-}
-
-func (b *BoundedFifoQueue) Pop() interface{} {
-	b.mx.Lock()
-	defer b.mx.Unlock()
-	if b.count > 0 {
-		head := b.Head
-		b.Head = head.Next
-		val := head.Val
-		head = nil
-		b.count--
-		return val
-	}
-	return nil
-}
-
-func (b *BoundedFifoQueue) Front() interface{} {
-	b.mx.RLock()
-	defer b.mx.RUnlock()
-	return b.Head.Val
-}
-
-func (b *BoundedFifoQueue) Back() interface{} {
-	b.mx.RLock()
-	defer b.mx.RUnlock()
-	return b.Tail.Val
-}
-
-func (b *BoundedFifoQueue) Len() int {
-	b.mx.RLock()
-	defer b.mx.RUnlock()
-	return b.count
-}
-
-type PriorityQueue struct {
-	mx      sync.RWMutex
-	events  *EventsMinHeap
-	maxSize int
-}
-
-func NewPriorityQueue(maxSize int) *PriorityQueue {
-	return &PriorityQueue{
-		events:  new(EventsMinHeap),
-		maxSize: maxSize,
-	}
-}
-
-func (p *PriorityQueue) Push(event *Event) {
-	p.mx.Lock()
-	defer p.mx.Unlock()
-	size := p.events.Len()
-	if size == p.maxSize {
-		heap.Pop(p.events)
-	}
-	heap.Push(
-		p.events,
-		event,
-	)
-}
-
-func (p *PriorityQueue) Pop() *Event {
-	p.mx.Lock()
-	defer p.mx.Unlock()
-	if p.events.Len() == 0 {
-		return nil
-	}
-	return heap.Pop(p.events).(*Event)
-}
-
-func (p *PriorityQueue) Len() int {
-	p.mx.RLock()
-	defer p.mx.RUnlock()
-	return p.events.Len()
-}
-
 func checkError(err error) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Fatal error: %s", err.Error())
@@ -299,7 +134,6 @@ type FollowerServer struct {
 	clients            *KVStore
 	followers          *KVStore
 	eventsChan         chan *Event
-	clientsChan        chan *Client
 	maxBatchSizeBytes  int
 	eventsQueueMaxSize int
 	clientPort         string
@@ -320,7 +154,6 @@ func NewFollowerServer(config *FollowerServerConfig) *FollowerServer {
 		clients:            NewKVStore(),
 		followers:          NewKVStore(),
 		eventsChan:         make(chan *Event, config.EventsQueueMaxSize),
-		clientsChan:        make(chan *Client),
 		maxBatchSizeBytes:  config.MaxBatchSizeBytes,
 		eventsQueueMaxSize: config.EventsQueueMaxSize,
 		clientPort:         config.ClientPort,
@@ -341,10 +174,6 @@ func (f *FollowerServer) GetEventsQueueMaxSize() int {
 	return f.eventsQueueMaxSize
 }
 
-func GetFunctionName(i interface{}) string {
-	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
-}
-
 func (f *FollowerServer) handleClient(conn net.Conn) {
 	request := make([]byte, f.maxBatchSizeBytes)
 	defer conn.Close()
@@ -360,27 +189,24 @@ func (f *FollowerServer) handleClient(conn net.Conn) {
 			log.Println(err)
 			return
 		}
-		client := &Client{
-			ID: clientId,
-			Ch: make(chan *Event),
-		}
-		f.clientsChan <- client
+		ch := make(chan *ClientRequest, 1)
+		f.clients.Set(clientId, ch)
+		f.followers.Set(clientId, make(map[uint64]bool))
 		var buff bytes.Buffer
-		var event *Event
+		var clientReq *ClientRequest
 		for {
 			select {
-			case event = <-client.Ch:
-				buff.WriteString(event.Raw)
+			case clientReq = <-ch:
+				buff.WriteString(clientReq.Payload)
 				buff.WriteRune('\n')
 				_, err := conn.Write(buff.Bytes())
 				buff.Reset()
 				if err != nil {
-					f.clients.Del(clientId)
-					f.followers.Del(clientId)
-					log.Printf("Dropping client `%v` with error: %v", clientId, err)
+					clientReq.Response <- err
 					return
 				}
-				log.Println(">>>> WRITE: ", clientId, ", ", event.Raw)
+				// DEBUG
+				log.Println(">>>> WRITE: ", clientId, ", ", clientReq.Payload)
 				// log.Printf("Client `%v` got event: `%v`\n", clientId, event.Raw)
 				continue
 			default:
@@ -434,7 +260,47 @@ func (f *FollowerServer) startTCPServer(service string, connHandler func(net.Con
 	}
 }
 
-func (f *FollowerServer) transmitNextEvent(event *Event) error {
+func (f *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
+	reqChan, ok := f.clients.Get(clientId).(chan *ClientRequest)
+	if !ok {
+		log.Printf("Error sending an event: client `%v` does not connected\n", clientId)
+		return
+	}
+	req := &ClientRequest{
+		Payload:  eventRaw,
+		Response: make(chan error, 1),
+	}
+	reqChan <- req
+	err := <-req.Response
+	if err != nil {
+		f.clients.Del(clientId)
+		f.followers.Del(clientId)
+		log.Printf("Dropping client `%v` with error: %v\n", clientId, err)
+	}
+}
+
+func (f *FollowerServer) addFollower(clientId, followerId uint64) {
+	followers, ok := f.followers.Get(clientId).(map[uint64]bool)
+	if !ok {
+		log.Printf("Error adding the follower: client `%v` does not connected\n", clientId)
+		return
+	}
+	followers[followerId] = true
+	// f.followers.Set(event.ToUserID, followers) // TODO: no need to re-set?
+}
+
+func (f *FollowerServer) removeFollower(clientId, followerId uint64) {
+	followers, ok := f.followers.Get(clientId).(map[uint64]bool)
+	if !ok {
+		log.Printf("Error removing the follower: client `%v` does not connected\n", clientId)
+		return
+	}
+	// log.Println(">>>> FLAG; UNFOLLOW: ", event.Number, event.FromUserID, event.ToUserID)
+	delete(followers, followerId)
+	// f.followers.Set(event.ToUserID, followers) // TODO: need to re-set the map?
+}
+
+func (f *FollowerServer) transmitNextEvent(event *Event) {
 	// log.Println(">>>>> <<<<<<: ", event.Raw)
 	if event.MsgType == Broadcast {
 		it := f.clients.GetIterator()
@@ -445,80 +311,47 @@ func (f *FollowerServer) transmitNextEvent(event *Event) error {
 			if !ok {
 				break
 			}
-			pq, ok := f.clients.Get(id).(*PriorityQueue)
-			if !ok {
-				return keyError
-			}
-			eventCpy := *event
+			eventCpy := (*event).Raw
 			wg.Add(1)
-			go func(pq *PriorityQueue, event *Event) {
+			go func(clientId uint64, eventRaw string) {
 				defer wg.Done()
-				pq.Push(event)
-			}(pq, &eventCpy)
+				f.sendEvent(clientId, eventRaw)
+			}(id, eventCpy)
 		}
 		wg.Wait()
 	} else if event.MsgType == Follow && event.FromUserID > 0 && event.ToUserID > 0 {
-		followers, ok := f.followers.Get(event.ToUserID).(map[uint64]bool)
-		if !ok {
-			return keyError
-		}
-		followers[event.FromUserID] = true
-		f.followers.Set(event.ToUserID, followers)
-		pq := f.clients.Get(event.ToUserID).(*PriorityQueue)
-		// log.Println(">>>> FLAG; FOLLOW: ", event.Number, event.FromUserID, event.ToUserID)
-		eventCpy := *event
-		pq.Push(&eventCpy)
+		f.addFollower(event.ToUserID, event.FromUserID)
+		f.sendEvent(event.ToUserID, event.Raw)
 	} else if event.MsgType == PrivateMsg && event.FromUserID > 0 && event.ToUserID > 0 {
-		pq, ok := f.clients.Get(event.ToUserID).(*PriorityQueue)
-		if !ok {
-			return keyError
-		}
-		// log.Println(">>>> FLAG; PRIVATE MSG: ", event.Number, event.FromUserID, event.ToUserID)
-		eventCpy := *event
-		pq.Push(&eventCpy)
+		f.sendEvent(event.ToUserID, event.Raw)
 	} else if event.MsgType == StatusUpdate && event.FromUserID > 0 {
 		followers, ok := f.followers.Get(event.FromUserID).(map[uint64]bool)
 		if !ok {
-			return keyError
+			log.Printf("Error getting the followers: client `%v` does not connected\n", event.FromUserID)
+			return
 		}
 		// log.Println(">>>> FLAG; STATUS UPDATE: ", event.Number, event.FromUserID)
 		wg := &sync.WaitGroup{}
 		for follower := range followers {
-			pq, ok := f.clients.Get(follower).(*PriorityQueue)
-			if !ok {
-				return keyError
-			}
-			eventCpy := *event
 			wg.Add(1)
-			go func(pq *PriorityQueue, event *Event) {
+			eventCpy := (*event).Raw
+			go func(clientId uint64, eventRaw string) {
 				defer wg.Done()
-				pq.Push(&eventCpy)
-			}(pq, &eventCpy)
+				f.sendEvent(clientId, eventRaw)
+			}(follower, eventCpy)
 		}
 		wg.Wait()
 	} else if event.MsgType == Unfollow && event.FromUserID > 0 && event.ToUserID > 0 {
-		followers, ok := f.followers.Get(event.ToUserID).(map[uint64]bool)
-		if !ok {
-			return keyError
-		}
-		// log.Println(">>>> FLAG; UNFOLLOW: ", event.Number, event.FromUserID, event.ToUserID)
-		delete(followers, event.FromUserID)
-		f.followers.Set(event.ToUserID, followers) // TODO: need to re-set the map?
+		f.removeFollower(event.ToUserID, event.FromUserID)
 	}
-	return nil
 }
 
-func (f *FollowerServer) coordinator() {
+func (f *FollowerServer) eventsTransmitter() {
 	var event *Event
-	var err error
 	for {
 		select {
 		case event = <-f.eventsChan:
-			err = f.transmitNextEvent(event)
-			if err != nil {
-				log.Printf("Error transmitting event: %v\n", err)
-			}
-			continue
+			f.transmitNextEvent(event)
 		default:
 			time.Sleep(1 * time.Millisecond)
 		}
@@ -528,7 +361,7 @@ func (f *FollowerServer) coordinator() {
 func (f *FollowerServer) Start() {
 	go f.startTCPServer(f.clientPort, f.handleClient)
 	go f.startTCPServer(f.eventsPort, f.handleEvents)
-	go f.coordinator()
+	go f.eventsTransmitter()
 	select {}
 }
 

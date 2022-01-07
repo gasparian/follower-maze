@@ -30,7 +30,7 @@ simulate:
 	./simulator/followermaze.sh
 
 simulate-test:
-	totalEvents=5000 \
+	totalEvents=1000 \
 	concurrencyLevel=10 \
 	numberOfUsers=10 \
 	timeout=5000 \
