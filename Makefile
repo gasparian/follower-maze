@@ -26,14 +26,15 @@ build-static:
 		-v -a ./cmd/server
 
 simulate:
-	totalEvents=1000000 \
+	totalEvents=100000 \
 	./simulator/followermaze.sh
 
 simulate-test:
-	totalEvents=1000 \
+	logLevel=info \
+	totalEvents=10000 \
 	concurrencyLevel=10 \
 	numberOfUsers=10 \
-	timeout=5000 \
+	timeout=20000 \
 	maxEventSourceBatchSize=100 \
 	./simulator/followermaze.sh
 
