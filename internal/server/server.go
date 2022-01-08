@@ -26,8 +26,8 @@ func checkError(err error) {
 
 type FollowerServer struct {
 	mx                 sync.RWMutex
-	clients            *kv.KVStore
-	followers          *kv.KVStore
+	clients            kv.KVStore
+	followers          kv.KVStore
 	eventsChan         chan *event.Event
 	clientsChan        chan *client.Client
 	maxBatchSizeBytes  int
@@ -47,8 +47,8 @@ type Config struct {
 
 func New(config *Config) *FollowerServer {
 	return &FollowerServer{
-		clients:            kv.New(),
-		followers:          kv.New(),
+		clients:            make(kv.KVStore),
+		followers:          make(kv.KVStore),
 		eventsChan:         make(chan *event.Event, config.EventsQueueMaxSize),
 		clientsChan:        make(chan *client.Client),
 		maxBatchSizeBytes:  config.MaxBatchSizeBytes,
@@ -174,12 +174,12 @@ func (f *FollowerServer) startTCPServer(service string, connHandler func(net.Con
 }
 
 func (f *FollowerServer) registerClient(c *client.Client) {
-	f.clients.Set(c.ID, c.Chan)
-	f.followers.Set(c.ID, make(map[uint64]bool))
+	f.clients[c.ID] = c.Chan
+	f.followers[c.ID] = make(map[uint64]bool)
 }
 
 func (f *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
-	reqChan, ok := f.clients.Get(clientId).(chan *client.Request)
+	reqChan, ok := f.clients[clientId].(chan *client.Request)
 	if !ok {
 		log.Printf("ERROR: trying to send an event: client `%v` does not connected\n", clientId)
 		return
@@ -191,14 +191,14 @@ func (f *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
 	reqChan <- req
 	err := <-req.Response
 	if err != nil {
-		f.clients.Del(clientId)
-		f.followers.Del(clientId)
+		delete(f.clients, clientId)
+		delete(f.followers, clientId)
 		log.Printf("INFO: Dropping client `%v` with error: %v\n", clientId, err)
 	}
 }
 
 func (f *FollowerServer) addFollower(clientId, followerId uint64) {
-	followers, ok := f.followers.Get(clientId).(map[uint64]bool)
+	followers, ok := f.followers[clientId].(map[uint64]bool)
 	if !ok {
 		log.Printf("ERROR: adding the follower: client `%v` does not connected\n", clientId)
 		return
@@ -208,7 +208,7 @@ func (f *FollowerServer) addFollower(clientId, followerId uint64) {
 }
 
 func (f *FollowerServer) removeFollower(clientId, followerId uint64) {
-	followers, ok := f.followers.Get(clientId).(map[uint64]bool)
+	followers, ok := f.followers[clientId].(map[uint64]bool)
 	if !ok {
 		log.Printf("ERROR: removing the follower: client `%v` does not connected\n", clientId)
 		return
@@ -242,7 +242,7 @@ func (f *FollowerServer) transmitNextEvent(e *event.Event) {
 	} else if e.MsgType == event.PrivateMsg && e.FromUserID > 0 && e.ToUserID > 0 {
 		f.sendEvent(e.ToUserID, e.Raw)
 	} else if e.MsgType == event.StatusUpdate && e.FromUserID > 0 {
-		followers, ok := f.followers.Get(e.FromUserID).(map[uint64]bool)
+		followers, ok := f.followers[e.FromUserID].(map[uint64]bool)
 		if !ok {
 			log.Printf("ERROR: getting the followers: client `%v` does not connected\n", e.FromUserID)
 			return
@@ -280,7 +280,7 @@ func (f *FollowerServer) coordinator() {
 	}
 }
 
-// TODO: make handlers as abstractions and split them from the FollowerServer object (provide only interface)
+// TODO: make handlers abstract and split them from the FollowerServer object (provide only interface)
 func (f *FollowerServer) Start() {
 	go f.startTCPServer(f.clientPort, f.handleClient)
 	go f.startTCPServer(f.eventsPort, f.handleEvents)

@@ -1,11 +1,9 @@
 package event
 
 import (
-	"container/heap"
 	"errors"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 const (
@@ -88,45 +86,4 @@ func (h *EventsMinHeap) Pop() interface{} {
 	old[tailIndex] = nil
 	*h = old[:tailIndex]
 	return tail
-}
-
-type PriorityQueue struct {
-	mx      sync.RWMutex
-	events  *EventsMinHeap
-	maxSize int
-}
-
-func NewPriorityQueue(maxSize int) *PriorityQueue {
-	return &PriorityQueue{
-		events:  new(EventsMinHeap),
-		maxSize: maxSize,
-	}
-}
-
-func (p *PriorityQueue) Push(event *Event) {
-	p.mx.Lock()
-	defer p.mx.Unlock()
-	size := p.events.Len()
-	if size == p.maxSize {
-		heap.Pop(p.events)
-	}
-	heap.Push(
-		p.events,
-		event,
-	)
-}
-
-func (p *PriorityQueue) Pop() *Event {
-	p.mx.Lock()
-	defer p.mx.Unlock()
-	if p.events.Len() == 0 {
-		return nil
-	}
-	return heap.Pop(p.events).(*Event)
-}
-
-func (p *PriorityQueue) Len() int {
-	p.mx.RLock()
-	defer p.mx.RUnlock()
-	return p.events.Len()
 }
