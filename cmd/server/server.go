@@ -3,13 +3,13 @@ package main
 import (
 	"runtime"
 
-	srv "github.com/gasparian/follower-maze/internal/server"
+	"github.com/gasparian/follower-maze/internal/server"
 )
 
 func main() {
 	runtime.GOMAXPROCS(4)
-	server := srv.New(
-		&srv.Config{
+	srv := server.New(
+		&server.Config{
 			EventsQueueMaxSize: 10000,
 			MaxBatchSizeBytes:  65536,
 			ClientPort:         ":9099",
@@ -17,5 +17,5 @@ func main() {
 			ConnDeadlineMs:     20000,
 		},
 	)
-	server.Start()
+	srv.Start()
 }

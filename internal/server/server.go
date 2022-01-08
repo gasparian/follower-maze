@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	ev "github.com/gasparian/follower-maze/internal/event"
-	cl "github.com/gasparian/follower-maze/internal/follower-client"
+	"github.com/gasparian/follower-maze/internal/event"
+	client "github.com/gasparian/follower-maze/internal/follower-client"
 	kv "github.com/gasparian/follower-maze/pkg/kvstore"
 )
 
@@ -28,8 +28,8 @@ type FollowerServer struct {
 	mx                 sync.RWMutex
 	clients            *kv.KVStore
 	followers          *kv.KVStore
-	eventsChan         chan *ev.Event
-	clientsChan        chan *cl.Client
+	eventsChan         chan *event.Event
+	clientsChan        chan *client.Client
 	maxBatchSizeBytes  int
 	eventsQueueMaxSize int
 	clientPort         string
@@ -49,8 +49,8 @@ func New(config *Config) *FollowerServer {
 	return &FollowerServer{
 		clients:            kv.New(),
 		followers:          kv.New(),
-		eventsChan:         make(chan *ev.Event, config.EventsQueueMaxSize),
-		clientsChan:        make(chan *cl.Client),
+		eventsChan:         make(chan *event.Event, config.EventsQueueMaxSize),
+		clientsChan:        make(chan *client.Client),
 		maxBatchSizeBytes:  config.MaxBatchSizeBytes,
 		eventsQueueMaxSize: config.EventsQueueMaxSize,
 		clientPort:         config.ClientPort,
@@ -91,21 +91,21 @@ func (f *FollowerServer) handleClient(conn net.Conn) {
 		log.Printf("ERROR: adding new client: %v", err)
 		return
 	}
-	client := &cl.Client{
+	c := &client.Client{
 		ID:   clientId,
-		Chan: make(chan *cl.Request),
+		Chan: make(chan *client.Request),
 	}
 	// f.registerClient(client)
-	f.clientsChan <- client
+	f.clientsChan <- c
 	log.Printf("INFO: Client `%v` connected\n", clientId)
 
 	var buff bytes.Buffer
-	var clientReq *cl.Request
+	var clientReq *client.Request
 	timerChan := time.After(f.GetConnDeadlineMs())
 	defer log.Printf("INFO: client `%v` is idle - disconnecting\n", clientId)
 	for {
 		select {
-		case clientReq = <-client.Chan:
+		case clientReq = <-c.Chan:
 			buff.WriteString(clientReq.Payload)
 			buff.WriteRune('\n')
 			_, err := conn.Write(buff.Bytes())
@@ -137,10 +137,10 @@ func (f *FollowerServer) handleEvents(conn net.Conn) {
 			log.Printf("INFO: Events connection closed: %v\n", err)
 			return
 		}
-		parsed := make([]*ev.Event, 0)
+		parsed := make([]*event.Event, 0)
 		req := strings.Fields(string(request[:read_len]))
 		for _, r := range req {
-			event, err := ev.New(r)
+			event, err := event.New(r)
 			if err != nil {
 				log.Printf("ERROR: processing event `%v`: `%v`\n", r, err)
 				continue
@@ -173,18 +173,18 @@ func (f *FollowerServer) startTCPServer(service string, connHandler func(net.Con
 	}
 }
 
-func (f *FollowerServer) registerClient(client *cl.Client) {
-	f.clients.Set(client.ID, client.Chan)
-	f.followers.Set(client.ID, make(map[uint64]bool))
+func (f *FollowerServer) registerClient(c *client.Client) {
+	f.clients.Set(c.ID, c.Chan)
+	f.followers.Set(c.ID, make(map[uint64]bool))
 }
 
 func (f *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
-	reqChan, ok := f.clients.Get(clientId).(chan *cl.Request)
+	reqChan, ok := f.clients.Get(clientId).(chan *client.Request)
 	if !ok {
 		log.Printf("ERROR: trying to send an event: client `%v` does not connected\n", clientId)
 		return
 	}
-	req := &cl.Request{
+	req := &client.Request{
 		Payload:  eventRaw,
 		Response: make(chan error, 1),
 	}
@@ -213,14 +213,13 @@ func (f *FollowerServer) removeFollower(clientId, followerId uint64) {
 		log.Printf("ERROR: removing the follower: client `%v` does not connected\n", clientId)
 		return
 	}
-	// log.Println(">>>> FLAG; UNFOLLOW: ", event.Number, event.FromUserID, event.ToUserID)
 	delete(followers, followerId)
 	// f.followers.Set(event.ToUserID, followers) // TODO: need to re-set the map?
 }
 
-func (f *FollowerServer) transmitNextEvent(event *ev.Event) {
+func (f *FollowerServer) transmitNextEvent(e *event.Event) {
 	// log.Println(">>>>> <<<<<<: ", event.Raw)
-	if event.MsgType == ev.Broadcast {
+	if e.MsgType == event.Broadcast {
 		it := f.clients.GetIterator()
 		// log.Println(">>>> FLAG; BROADCAST", event.Number)
 		wg := &sync.WaitGroup{}
@@ -229,7 +228,7 @@ func (f *FollowerServer) transmitNextEvent(event *ev.Event) {
 			if !ok {
 				break
 			}
-			eventCpy := (*event).Raw
+			eventCpy := (*e).Raw
 			wg.Add(1)
 			go func(clientId uint64, eventRaw string) {
 				defer wg.Done()
@@ -237,35 +236,35 @@ func (f *FollowerServer) transmitNextEvent(event *ev.Event) {
 			}(id, eventCpy)
 		}
 		wg.Wait()
-	} else if event.MsgType == ev.Follow && event.FromUserID > 0 && event.ToUserID > 0 {
-		f.addFollower(event.ToUserID, event.FromUserID)
-		f.sendEvent(event.ToUserID, event.Raw)
-	} else if event.MsgType == ev.PrivateMsg && event.FromUserID > 0 && event.ToUserID > 0 {
-		f.sendEvent(event.ToUserID, event.Raw)
-	} else if event.MsgType == ev.StatusUpdate && event.FromUserID > 0 {
-		followers, ok := f.followers.Get(event.FromUserID).(map[uint64]bool)
+	} else if e.MsgType == event.Follow && e.FromUserID > 0 && e.ToUserID > 0 {
+		f.addFollower(e.ToUserID, e.FromUserID)
+		f.sendEvent(e.ToUserID, e.Raw)
+	} else if e.MsgType == event.PrivateMsg && e.FromUserID > 0 && e.ToUserID > 0 {
+		f.sendEvent(e.ToUserID, e.Raw)
+	} else if e.MsgType == event.StatusUpdate && e.FromUserID > 0 {
+		followers, ok := f.followers.Get(e.FromUserID).(map[uint64]bool)
 		if !ok {
-			log.Printf("ERROR: getting the followers: client `%v` does not connected\n", event.FromUserID)
+			log.Printf("ERROR: getting the followers: client `%v` does not connected\n", e.FromUserID)
 			return
 		}
 		// log.Println(">>>> FLAG; STATUS UPDATE: ", event.Number, event.FromUserID)
 		wg := &sync.WaitGroup{}
 		for follower := range followers {
 			wg.Add(1)
-			eventCpy := (*event).Raw
+			eventCpy := (*e).Raw
 			go func(clientId uint64, eventRaw string) {
 				defer wg.Done()
 				f.sendEvent(clientId, eventRaw)
 			}(follower, eventCpy)
 		}
 		wg.Wait()
-	} else if event.MsgType == ev.Unfollow && event.FromUserID > 0 && event.ToUserID > 0 {
-		f.removeFollower(event.ToUserID, event.FromUserID)
+	} else if e.MsgType == event.Unfollow && e.FromUserID > 0 && e.ToUserID > 0 {
+		f.removeFollower(e.ToUserID, e.FromUserID)
 	}
 }
 
 func (f *FollowerServer) coordinator() {
-	var event *ev.Event
+	var event *event.Event
 	for {
 		select {
 		case client := <-f.clientsChan:
