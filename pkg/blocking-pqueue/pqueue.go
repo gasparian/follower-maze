@@ -6,18 +6,22 @@ import (
 )
 
 type BlockingPQueue struct {
-	mx       sync.RWMutex
+	mx       *sync.RWMutex
 	items    heap.Interface
 	count    uint64
 	maxSize  uint64
-	notEmpty sync.Cond
-	notFull  sync.Cond
+	notEmpty *sync.Cond
+	notFull  *sync.Cond
 }
 
 func New(h heap.Interface, maxSize uint64) *BlockingPQueue {
+	mx := &sync.RWMutex{}
 	return &BlockingPQueue{
-		items:   h,
-		maxSize: maxSize,
+		mx:       mx,
+		items:    h,
+		maxSize:  maxSize,
+		notEmpty: sync.NewCond(mx),
+		notFull:  sync.NewCond(mx),
 	}
 }
 

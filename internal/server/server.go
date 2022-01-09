@@ -30,7 +30,7 @@ type FollowerServer struct {
 	followers          kv.KVStore
 	eventsChan         chan *event.Event
 	clientsChan        chan *client.Client
-	maxBatchSizeBytes  int
+	maxBuffSizeBytes   int
 	eventsQueueMaxSize int
 	clientPort         string
 	eventsPort         string
@@ -42,7 +42,7 @@ type Config struct {
 	ClientPort         string
 	EventsPort         string
 	ConnDeadlineMs     int
-	MaxBatchSizeBytes  int
+	MaxBuffSizeBytes   int
 }
 
 func New(config *Config) *FollowerServer {
@@ -51,7 +51,7 @@ func New(config *Config) *FollowerServer {
 		followers:          make(kv.KVStore),
 		eventsChan:         make(chan *event.Event, config.EventsQueueMaxSize),
 		clientsChan:        make(chan *client.Client),
-		maxBatchSizeBytes:  config.MaxBatchSizeBytes,
+		maxBuffSizeBytes:   config.MaxBuffSizeBytes,
 		eventsQueueMaxSize: config.EventsQueueMaxSize,
 		clientPort:         config.ClientPort,
 		eventsPort:         config.EventsPort,
@@ -59,10 +59,10 @@ func New(config *Config) *FollowerServer {
 	}
 }
 
-func (f *FollowerServer) GetMaxBatchSize() int {
+func (f *FollowerServer) GetMaxBuffSize() int {
 	f.mx.RLock()
 	defer f.mx.RUnlock()
-	return f.maxBatchSizeBytes
+	return f.maxBuffSizeBytes
 }
 
 func (f *FollowerServer) GetConnDeadlineMs() time.Duration {
@@ -78,7 +78,7 @@ func (f *FollowerServer) GetEventsQueueMaxSize() int {
 }
 
 func (f *FollowerServer) handleClient(conn net.Conn) {
-	request := make([]byte, f.GetMaxBatchSize())
+	request := make([]byte, f.GetMaxBuffSize())
 	defer conn.Close()
 	read_len, err := conn.Read(request)
 	if err != nil {
@@ -129,7 +129,7 @@ func (f *FollowerServer) handleClient(conn net.Conn) {
 //       keep this part and concatenate it with the next
 //       chunk of data
 func (f *FollowerServer) handleEvents(conn net.Conn) {
-	request := make([]byte, f.GetMaxBatchSize())
+	request := make([]byte, f.GetMaxBuffSize())
 	defer conn.Close()
 	for {
 		read_len, err := conn.Read(request)

@@ -11,7 +11,7 @@ func main() {
 	srv := server.New(
 		&server.Config{
 			EventsQueueMaxSize: 10000,
-			MaxBatchSizeBytes:  65536,
+			MaxBuffSizeBytes:   65536,
 			ClientPort:         ":9099",
 			EventsPort:         ":9090",
 			ConnDeadlineMs:     20000,
