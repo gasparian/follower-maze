@@ -11,10 +11,12 @@ func main() {
 	srv := server.New(
 		&server.Config{
 			EventsQueueMaxSize: 10000,
-			MaxBuffSizeBytes:   65536,
-			ClientPort:         ":9099",
-			EventsPort:         ":9090",
-			ConnDeadlineMs:     20000,
+			// MaxBuffSizeBytes:   65536,
+			MaxBuffSizeBytes: 8000,
+			ClientPort:       ":9099",
+			EventsPort:       ":9090",
+			// ConnDeadlineMs: 20000,
+			ConnDeadlineMs: 100000,
 		},
 	)
 	srv.Start()

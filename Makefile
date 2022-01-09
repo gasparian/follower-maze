@@ -31,7 +31,7 @@ simulate:
 
 simulate-test:
 	logLevel=info \
-	totalEvents=10000 \
+	totalEvents=100000 \
 	concurrencyLevel=10 \
 	numberOfUsers=10 \
 	timeout=20000 \

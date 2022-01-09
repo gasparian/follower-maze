@@ -3,6 +3,11 @@ package pqueue
 import (
 	"sync"
 	"testing"
+	"time"
+)
+
+const (
+	timeoutMs = 500 * time.Millisecond
 )
 
 type intHeap []int
@@ -23,9 +28,10 @@ func (h *intHeap) Pop() interface{} {
 	return x
 }
 
-func TestPQueue(t *testing.T) {
+func TestPushPop(t *testing.T) {
 	pq := New(&intHeap{}, 3)
 	wg := &sync.WaitGroup{}
+	waitCh := make(chan bool)
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
 		go func() {
@@ -35,7 +41,39 @@ func TestPQueue(t *testing.T) {
 	}
 	val := pq.Pop().(int)
 	if val != 1 {
-		t.Error()
+		t.Errorf(
+			"Return value doesn't equal original one: should be 1, but got `%v`\n",
+			val,
+		)
 	}
 	wg.Wait()
+	close(waitCh)
+
+	select {
+	case <-waitCh:
+	case <-time.After(timeoutMs):
+		t.Error("timeout")
+	}
+}
+
+func TestClear(t *testing.T) {
+	pq := New(&intHeap{}, 3)
+	wg := &sync.WaitGroup{}
+	waitCh := make(chan bool)
+	for i := uint64(0); i < pq.maxSize*2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pq.Push(1)
+		}()
+	}
+	pq.Clear()
+	wg.Wait()
+	close(waitCh)
+
+	select {
+	case <-waitCh:
+	case <-time.After(timeoutMs):
+		t.Error("timeout")
+	}
 }
