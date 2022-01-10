@@ -2,60 +2,49 @@ package server
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gasparian/follower-maze/internal/event"
-	client "github.com/gasparian/follower-maze/internal/follower-client"
+	"github.com/gasparian/follower-maze/internal/follower"
 	pqueue "github.com/gasparian/follower-maze/pkg/blocking-pqueue"
 	kv "github.com/gasparian/follower-maze/pkg/kvstore"
+	ss "github.com/gasparian/follower-maze/pkg/socket-server"
 )
-
-func checkError(err error) {
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Fatal error: %s", err.Error())
-		os.Exit(1)
-	}
-}
 
 type FollowerServer struct {
 	mx                 sync.RWMutex
+	clientServer       ss.SocketServer
+	eventsServer       ss.SocketServer
 	clients            kv.KVStore
 	followers          kv.KVStore
-	eventsPQueue       *pqueue.BlockingPQueue
-	clientsChan        chan *client.Client
+	clientsChan        chan *follower.Client
 	maxBuffSizeBytes   int
 	eventsQueueMaxSize int
-	clientPort         string
-	eventsPort         string
-	connDeadlineMs     time.Duration
+	eventsPQueue       *pqueue.BlockingPQueue
 }
 
 type Config struct {
 	EventsQueueMaxSize int
 	ClientPort         string
 	EventsPort         string
-	ConnDeadlineMs     int
 	MaxBuffSizeBytes   int
 }
 
 func New(config *Config) *FollowerServer {
 	return &FollowerServer{
+		clientServer:       ss.NewTCPServer(config.ClientPort),
+		eventsServer:       ss.NewTCPServer(config.EventsPort),
 		clients:            make(kv.KVStore),
 		followers:          make(kv.KVStore),
 		eventsPQueue:       pqueue.New(&event.EventsMinHeap{}, uint64(config.EventsQueueMaxSize)),
-		clientsChan:        make(chan *client.Client),
+		clientsChan:        make(chan *follower.Client),
 		maxBuffSizeBytes:   config.MaxBuffSizeBytes,
 		eventsQueueMaxSize: config.EventsQueueMaxSize,
-		clientPort:         config.ClientPort,
-		eventsPort:         config.EventsPort,
-		connDeadlineMs:     time.Duration(config.ConnDeadlineMs) * time.Millisecond,
 	}
 }
 
@@ -65,19 +54,14 @@ func (f *FollowerServer) GetMaxBuffSize() int {
 	return f.maxBuffSizeBytes
 }
 
-func (f *FollowerServer) GetConnDeadlineMs() time.Duration {
-	f.mx.RLock()
-	defer f.mx.RUnlock()
-	return f.connDeadlineMs
-}
-
 func (f *FollowerServer) GetEventsQueueMaxSize() int {
 	f.mx.RLock()
 	defer f.mx.RUnlock()
 	return f.eventsQueueMaxSize
 }
 
-func (f *FollowerServer) handleClient(conn net.Conn, buff []byte) {
+func (f *FollowerServer) handleClient(conn net.Conn) {
+	buff := make([]byte, f.GetMaxBuffSize())
 	read_len, err := conn.Read(buff)
 	if err != nil {
 		log.Printf("INFO: Client connection closed: %v\n", err)
@@ -89,17 +73,15 @@ func (f *FollowerServer) handleClient(conn net.Conn, buff []byte) {
 		log.Printf("ERROR: adding new client: %v", err)
 		return
 	}
-	c := &client.Client{
+	c := &follower.Client{
 		ID:   clientId,
-		Chan: make(chan *client.Request),
+		Chan: make(chan *follower.Request),
 	}
 	f.clientsChan <- c
 	log.Printf("INFO: Client `%v` connected\n", clientId)
 
 	var clientReqBuff bytes.Buffer
-	var clientReq *client.Request
-	// timerChan := time.After(f.GetConnDeadlineMs())
-	// timerChan := time.After(1000 * time.Second)
+	var clientReq *follower.Request
 	for {
 		select {
 		case clientReq = <-c.Chan:
@@ -112,16 +94,19 @@ func (f *FollowerServer) handleClient(conn net.Conn, buff []byte) {
 				return
 			}
 			// log.Println("DEBUG: >>>> WROTE: ", clientId, ", ", clientReq.Payload)
-		// case <-timerChan: // TODO: drop it?
-		// 	log.Printf("INFO: client `%v` is idle - disconnecting\n", clientId)
-		// 	return
 		default:
-			time.Sleep(1 * time.Millisecond)
+			err := ss.ConnCheck(conn)
+			if err != nil {
+				log.Printf("INFO: Client `%v` disconnected: %v\n", clientId, err)
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
 		}
 	}
 }
 
-func (f *FollowerServer) handleEvents(conn net.Conn, buff []byte) {
+func (f *FollowerServer) handleEvents(conn net.Conn) {
+	buff := make([]byte, f.GetMaxBuffSize())
 	var partialEvents strings.Builder
 	for {
 		read_len, err := conn.Read(buff)
@@ -156,38 +141,18 @@ func (f *FollowerServer) handleEvents(conn net.Conn, buff []byte) {
 	}
 }
 
-func (f *FollowerServer) startTCPServer(service string, connHandler func(net.Conn, []byte)) {
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
-	checkError(err)
-	listener, err := net.ListenTCP("tcp", tcpAddr)
-	checkError(err)
-	log.Println("INFO: Starting tcp server...")
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			continue
-		}
-		conn.SetDeadline(time.Now().Add(f.GetConnDeadlineMs()))
-		go func() {
-			buff := make([]byte, f.GetMaxBuffSize())
-			defer conn.Close()
-			connHandler(conn, buff)
-		}()
-	}
-}
-
-func (f *FollowerServer) registerClient(c *client.Client) {
+func (f *FollowerServer) registerClient(c *follower.Client) {
 	f.clients[c.ID] = c.Chan
 	f.followers[c.ID] = make(map[uint64]bool)
 }
 
 func (f *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
-	reqChan, ok := f.clients[clientId].(chan *client.Request)
+	reqChan, ok := f.clients[clientId].(chan *follower.Request)
 	if !ok {
 		// log.Printf("ERROR: trying to send an event: client `%v` does not connected\n", clientId)
 		return
 	}
-	req := &client.Request{
+	req := &follower.Request{
 		Payload:  eventRaw,
 		Response: make(chan error, 1),
 	}
@@ -252,13 +217,13 @@ func (f *FollowerServer) transmitNextEvent(e *event.Event) {
 		}
 		// log.Println(">>>> FLAG; STATUS UPDATE: ", event.Number, event.FromUserID)
 		wg := &sync.WaitGroup{}
-		for follower := range followers {
+		for fl := range followers {
 			wg.Add(1)
 			eventCpy := (*e).Raw
 			go func(clientId uint64, eventRaw string) {
 				defer wg.Done()
 				f.sendEvent(clientId, eventRaw)
-			}(follower, eventCpy)
+			}(fl, eventCpy)
 		}
 		wg.Wait()
 	} else if e.MsgType == event.Unfollow && e.FromUserID > 0 && e.ToUserID > 0 {
@@ -268,9 +233,10 @@ func (f *FollowerServer) transmitNextEvent(e *event.Event) {
 
 func (f *FollowerServer) coordinator() {
 	var e *event.Event
+	var client *follower.Client
 	for {
 		select {
-		case client := <-f.clientsChan:
+		case client = <-f.clientsChan:
 			f.registerClient(client)
 		default:
 		}
@@ -281,8 +247,8 @@ func (f *FollowerServer) coordinator() {
 
 // TODO: make handlers abstract and split them from the FollowerServer object (provide only interface)
 func (f *FollowerServer) Start() {
-	go f.startTCPServer(f.clientPort, f.handleClient)
-	go f.startTCPServer(f.eventsPort, f.handleEvents)
+	go f.clientServer.Start(f.handleClient)
+	go f.eventsServer.Start(f.handleEvents)
 	go f.coordinator()
 	select {}
 }

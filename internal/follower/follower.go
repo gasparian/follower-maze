@@ -1,4 +1,4 @@
-package client
+package follower
 
 type Request struct {
 	Payload  string
