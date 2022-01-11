@@ -1,4 +1,4 @@
-package pqueue
+package queues
 
 import (
 	"sync"
@@ -28,7 +28,7 @@ func (h *intHeap) Pop() interface{} {
 	return x
 }
 
-func TestPushPop(t *testing.T) {
+func TestPQueuePushPop(t *testing.T) {
 	pq := New(&intHeap{}, 3)
 	wg := &sync.WaitGroup{}
 	waitCh := make(chan bool)
@@ -56,7 +56,7 @@ func TestPushPop(t *testing.T) {
 	}
 }
 
-func TestClear(t *testing.T) {
+func TestPQueueClear(t *testing.T) {
 	pq := New(&intHeap{}, 3)
 	wg := &sync.WaitGroup{}
 	waitCh := make(chan bool)

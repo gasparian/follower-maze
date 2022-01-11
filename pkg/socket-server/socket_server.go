@@ -42,22 +42,22 @@ func ConnCheck(conn net.Conn) error {
 	return sysErr
 }
 
-type ConnHandler func(conn net.Conn)
+type connHandler func(net.Conn)
 
 type SocketServer interface {
-	Start(ConnHandler)
+	Start(connHandler)
 	Stop()
 }
 
 type TCPSocketServer struct {
-	address     string
+	servicePort string
 	stopSignal  chan bool
 	stoppedFlag int32
 }
 
-func NewTCPServer(address string) *TCPSocketServer {
+func NewTCPServer(servicePort string) *TCPSocketServer {
 	return &TCPSocketServer{
-		address: address,
+		servicePort: servicePort,
 	}
 }
 
@@ -77,8 +77,8 @@ func (ss *TCPSocketServer) listenStopSignal(listener *net.TCPListener) {
 	}()
 }
 
-func (ss *TCPSocketServer) Start(connHandler ConnHandler) {
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", ss.address)
+func (ss *TCPSocketServer) Start(h connHandler) {
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", ss.servicePort)
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	ss.listenStopSignal(listener)
@@ -95,7 +95,7 @@ func (ss *TCPSocketServer) Start(connHandler ConnHandler) {
 		}
 		go func() {
 			defer conn.Close()
-			connHandler(conn)
+			h(conn)
 		}()
 	}
 }
