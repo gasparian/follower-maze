@@ -7,21 +7,27 @@ import (
 	"github.com/gasparian/follower-maze/internal/event"
 	"github.com/gasparian/follower-maze/internal/follower"
 	kv "github.com/gasparian/follower-maze/pkg/kvstore"
-	q "github.com/gasparian/follower-maze/pkg/queues"
 )
 
-type MsgServer interface {
-	q.Queue
+type EventsServer interface {
+	GetMsg() interface{}
 	Start()
 	Stop()
 }
 
 type FollowerServer struct {
-	mx           sync.RWMutex
-	ClientServer MsgServer
-	EventsServer MsgServer
-	clients      kv.KVStore
-	followers    kv.KVStore
+	mx                     sync.RWMutex
+	ClientServer           EventsServer
+	EventsServer           EventsServer
+	SendEventsQueueMaxSize int
+	clients                kv.KVStore
+	followers              kv.KVStore
+}
+
+func (fs *FollowerServer) GetSendEventsQueueMaxSize() int {
+	fs.mx.RLock()
+	defer fs.mx.RUnlock()
+	return fs.SendEventsQueueMaxSize
 }
 
 func (f *FollowerServer) addFollower(clientId, followerId uint64) {
@@ -95,46 +101,46 @@ func (f *FollowerServer) registerClient(c *follower.Client) {
 	f.followers[c.ID] = make(map[uint64]bool)
 }
 
-func (f *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
-	reqChan, ok := f.clients[clientId].(chan *follower.Request)
+func (fs *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
+	reqChan, ok := fs.clients[clientId].(chan *follower.Request)
 	if !ok {
 		// log.Printf("ERROR: trying to send an event: client `%v` does not connected\n", clientId)
 		return
 	}
 	req := &follower.Request{
 		Payload:  eventRaw,
-		Response: make(chan error, 1),
+		Response: make(chan error, fs.GetSendEventsQueueMaxSize()),
 	}
 	reqChan <- req
 	err := <-req.Response
 	if err != nil {
-		delete(f.clients, clientId)
-		delete(f.followers, clientId)
+		delete(fs.clients, clientId)
+		delete(fs.followers, clientId)
 		log.Printf("INFO: Dropping client `%v` with error: %v\n", clientId, err)
 	}
 }
 
-func (f *FollowerServer) coordinator() {
+func (fs *FollowerServer) coordinator() {
 	var e *event.Event
 	for {
-		client := f.ClientServer.Pop()
+		client := fs.ClientServer.GetMsg() // NOTE: non-blocking
 		if client != nil {
-			f.registerClient(client.(*follower.Client))
+			fs.registerClient(client.(*follower.Client))
 		}
-		e = f.EventsServer.Pop().(*event.Event) // NOTE: will block if the queue is empty
-		f.transmitNextEvent(e)
+		e = fs.EventsServer.GetMsg().(*event.Event) // NOTE: will block if the queue is empty
+		fs.transmitNextEvent(e)
 	}
 }
 
-func (f *FollowerServer) initStores() {
-	f.clients = make(kv.KVStore)
-	f.followers = make(kv.KVStore)
+func (fs *FollowerServer) initStores() {
+	fs.clients = make(kv.KVStore)
+	fs.followers = make(kv.KVStore)
 }
 
-func (f *FollowerServer) Start() {
-	f.initStores()
-	go f.ClientServer.Start()
-	go f.EventsServer.Start()
-	go f.coordinator()
+func (fs *FollowerServer) Start() {
+	fs.initStores()
+	go fs.ClientServer.Start()
+	go fs.EventsServer.Start()
+	go fs.coordinator()
 	select {}
 }

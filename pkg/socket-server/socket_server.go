@@ -83,7 +83,7 @@ func (ss *TCPSocketServer) Start(h connHandler) {
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	ss.listenStopSignal(listener)
 	checkError(err)
-	log.Println("INFO: Starting tcp server...")
+	log.Printf("INFO: Starting tcp server %s\n", tcpAddr)
 	for {
 		conn, err := listener.Accept()
 		if ss.isStopped() {
