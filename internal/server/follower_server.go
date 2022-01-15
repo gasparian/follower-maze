@@ -16,18 +16,20 @@ type EventsServer interface {
 }
 
 type FollowerServer struct {
-	mx                     sync.RWMutex
-	ClientServer           EventsServer
-	EventsServer           EventsServer
-	SendEventsQueueMaxSize int
-	clients                kv.KVStore
-	followers              kv.KVStore
+	mx           sync.RWMutex
+	clientServer EventsServer
+	eventsServer EventsServer
+	clients      kv.KVStore
+	followers    kv.KVStore
 }
 
-func (fs *FollowerServer) GetSendEventsQueueMaxSize() int {
-	fs.mx.RLock()
-	defer fs.mx.RUnlock()
-	return fs.SendEventsQueueMaxSize
+func NewFollowerServer(clientServer, eventsServer EventsServer) *FollowerServer {
+	fs := &FollowerServer{}
+	fs.clientServer = clientServer
+	fs.eventsServer = eventsServer
+	fs.clients = make(kv.KVStore)
+	fs.followers = make(kv.KVStore)
+	return fs
 }
 
 func (fs *FollowerServer) addFollower(clientId, followerId uint64) {
@@ -104,11 +106,6 @@ func (fs *FollowerServer) processEvent(e *event.Event) {
 	}
 }
 
-func (fs *FollowerServer) initState() {
-	fs.clients = make(kv.KVStore)
-	fs.followers = make(kv.KVStore)
-}
-
 func (fs *FollowerServer) registerClient(c *follower.Client) {
 	fs.clients[c.ID] = c.Chan
 	fs.followers[c.ID] = make(map[uint64]bool)
@@ -157,7 +154,7 @@ func (fs *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
 	}
 	req := &follower.Request{
 		Payload:  eventRaw,
-		Response: make(chan error, fs.GetSendEventsQueueMaxSize()),
+		Response: make(chan error, 1),
 	}
 	reqChan <- req
 	err := <-req.Response
@@ -170,19 +167,18 @@ func (fs *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
 func (fs *FollowerServer) coordinator() {
 	var e *event.Event
 	for {
-		client := fs.ClientServer.GetMsg() // NOTE: non-blocking
+		client := fs.clientServer.GetMsg() // NOTE: non-blocking
 		if client != nil {
 			fs.registerClient(client.(*follower.Client))
 		}
-		e = fs.EventsServer.GetMsg().(*event.Event) // NOTE: will block if the queue is empty
+		e = fs.eventsServer.GetMsg().(*event.Event) // NOTE: will block if the queue is empty
 		fs.processEvent(e)
 	}
 }
 
 func (fs *FollowerServer) Start() {
-	fs.initState()
-	go fs.ClientServer.Start()
-	go fs.EventsServer.Start()
+	go fs.clientServer.Start()
+	go fs.eventsServer.Start()
 	go fs.coordinator()
 	select {}
 }

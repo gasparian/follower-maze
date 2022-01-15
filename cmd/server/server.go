@@ -18,38 +18,39 @@ func init() {
 }
 
 func main() {
-
-	// TODO: keep it in config toml
-	runtime.GOMAXPROCS(4)
-	EventsQueueMaxSize := 1000
-	MaxBuffSizeBytes := 8000
-	ClientPort := ":9099"
-	EventsPort := ":9090"
-	SendEventsQueueMaxSize := 100
-	// MaxBatchSize := 1000
-	// ReadTimeoutMs := 500
-
 	flag.Parse()
 
-	config := &server.FollowerServerConfig{}
-	_, err := toml.DecodeFile(configPath, config)
+	var config server.FollowerServerConfig
+	_, err := toml.DecodeFile(configPath, &config)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Println("Config: ", config)
+	runtime.GOMAXPROCS(config.Runtime.MaxProcs)
 
-	srv := &server.FollowerServer{
-		ClientServer: server.NewClientAcceptor(MaxBuffSizeBytes, ClientPort),
-		EventsServer: server.NewEventsParserPQueue(MaxBuffSizeBytes, EventsQueueMaxSize, EventsPort),
-		// EventsServer: server.NewEventsParserBatched(
-		// 	MaxBuffSizeBytes,
-		// 	MaxBatchSize,
-		// 	EventsQueueMaxSize,
-		// 	ReadTimeoutMs,
-		// 	EventsPort,
-		// ),
-		SendEventsQueueMaxSize: SendEventsQueueMaxSize,
+	var eventsServer server.EventsServer
+	if config.Events.Batched {
+		eventsServer = server.NewEventsParserBatched(
+			config.Events.MaxBuffSizeBytes,
+			config.Events.MaxBatchSize,
+			config.Events.EventsQueueMaxSize,
+			config.Events.ReadTimeoutMs,
+			config.Events.Port,
+		)
+	} else {
+		eventsServer = server.NewEventsParserPQueue(
+			config.Events.MaxBuffSizeBytes,
+			config.Events.EventsQueueMaxSize,
+			config.Events.Port,
+		)
 	}
+
+	clientServer := server.NewClientAcceptor(
+		config.Client.MaxBuffSizeBytes,
+		config.Client.SendEventsQueueMaxSize,
+		config.Client.Port,
+	)
+
+	srv := server.NewFollowerServer(clientServer, eventsServer)
 	srv.Start()
 }

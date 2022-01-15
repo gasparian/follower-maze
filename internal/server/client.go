@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gasparian/follower-maze/internal/follower"
@@ -13,16 +14,19 @@ import (
 )
 
 type ClientAcceptor struct {
-	MaxBuffSize int
-	server      ss.SocketServer
-	clientsChan chan *follower.Client
+	mx                 sync.RWMutex
+	maxBuffSizeBytes   int
+	server             ss.SocketServer
+	clientsChan        chan *follower.Client
+	eventsQueueMaxSize int
 }
 
-func NewClientAcceptor(maxBuffSize int, servicePort string) *ClientAcceptor {
+func NewClientAcceptor(maxBuffSizeBytes, eventsQueueMaxSize int, servicePort string) *ClientAcceptor {
 	return &ClientAcceptor{
-		MaxBuffSize: maxBuffSize,
-		clientsChan: make(chan *follower.Client),
-		server:      ss.NewTCPServer(servicePort),
+		maxBuffSizeBytes:   maxBuffSizeBytes,
+		clientsChan:        make(chan *follower.Client),
+		server:             ss.NewTCPServer(servicePort),
+		eventsQueueMaxSize: eventsQueueMaxSize,
 	}
 }
 
@@ -44,7 +48,11 @@ func (ca *ClientAcceptor) Stop() {
 }
 
 func (ca *ClientAcceptor) handler(conn net.Conn) {
-	buff := make([]byte, ca.MaxBuffSize)
+	ca.mx.RLock()
+	maxBuffSizeBytes := ca.maxBuffSizeBytes
+	eventsQueueMaxSize := ca.eventsQueueMaxSize
+	ca.mx.RUnlock()
+	buff := make([]byte, maxBuffSizeBytes)
 	read_len, err := conn.Read(buff)
 	if err != nil {
 		log.Printf("INFO: Client connection closed: %v\n", err)
@@ -58,7 +66,7 @@ func (ca *ClientAcceptor) handler(conn net.Conn) {
 	}
 	cl := &follower.Client{
 		ID:   clientId,
-		Chan: make(chan *follower.Request),
+		Chan: make(chan *follower.Request, eventsQueueMaxSize),
 	}
 	ca.clientsChan <- cl
 	log.Printf("INFO: Client `%v` connected\n", clientId)

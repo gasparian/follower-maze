@@ -26,7 +26,6 @@ build-static:
 		-v -a ./cmd/server
 
 simulate:
-	totalEvents=100000 \
 	./simulator/followermaze.sh
 
 simulate-test:
