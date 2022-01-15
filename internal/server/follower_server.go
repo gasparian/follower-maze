@@ -30,18 +30,23 @@ func (fs *FollowerServer) GetSendEventsQueueMaxSize() int {
 	return fs.SendEventsQueueMaxSize
 }
 
-func (f *FollowerServer) addFollower(clientId, followerId uint64) {
-	followers, ok := f.followers[clientId].(map[uint64]bool)
+func (fs *FollowerServer) addFollower(clientId, followerId uint64) {
+	_, ok := fs.clients[followerId]
 	if !ok {
 		// log.Printf("ERROR: adding the follower: client `%v` does not connected\n", clientId)
 		return
+	}
+	followers, ok := fs.followers[clientId].(map[uint64]bool)
+	if !ok {
+		followers = make(map[uint64]bool)
+		fs.followers[clientId] = followers
 	}
 	followers[followerId] = true
 	// f.followers.Set(event.ToUserID, followers) // TODO: no need to re-set?
 }
 
-func (f *FollowerServer) removeFollower(clientId, followerId uint64) {
-	followers, ok := f.followers[clientId].(map[uint64]bool)
+func (fs *FollowerServer) removeFollower(clientId, followerId uint64) {
+	followers, ok := fs.followers[clientId].(map[uint64]bool)
 	if !ok {
 		// log.Printf("ERROR: removing the follower: client `%v` does not connected\n", clientId)
 		return
@@ -50,10 +55,12 @@ func (f *FollowerServer) removeFollower(clientId, followerId uint64) {
 	// f.followers.Set(event.ToUserID, followers) // TODO: need to re-set the map?
 }
 
-func (f *FollowerServer) transmitNextEvent(e *event.Event) {
+func (fs *FollowerServer) processEvent(e *event.Event) {
 	// log.Println(">>>>> <<<<<<: ", event.Raw)
-	if e.MsgType == event.Broadcast {
-		it := f.clients.GetIterator()
+	if e.MsgType == event.ServerShutdown {
+		fs.cleanState()
+	} else if e.MsgType == event.Broadcast {
+		it := fs.clients.GetIterator()
 		// log.Println(">>>> FLAG; BROADCAST", event.Number)
 		wg := &sync.WaitGroup{}
 		for {
@@ -65,40 +72,81 @@ func (f *FollowerServer) transmitNextEvent(e *event.Event) {
 			wg.Add(1)
 			go func(clientId uint64, eventRaw string) {
 				defer wg.Done()
-				f.sendEvent(clientId, eventRaw)
+				fs.sendEvent(clientId, eventRaw)
 			}(id, eventCpy)
 		}
 		wg.Wait()
 	} else if e.MsgType == event.Follow && e.FromUserID > 0 && e.ToUserID > 0 {
-		f.addFollower(e.ToUserID, e.FromUserID)
-		f.sendEvent(e.ToUserID, e.Raw)
+		fs.addFollower(e.ToUserID, e.FromUserID)
+		fs.sendEvent(e.ToUserID, e.Raw)
+		// log.Println("DEBUG: FOLLOW: ", e.Number, e.ToUserID, e.FromUserID)
 	} else if e.MsgType == event.PrivateMsg && e.FromUserID > 0 && e.ToUserID > 0 {
-		f.sendEvent(e.ToUserID, e.Raw)
+		fs.sendEvent(e.ToUserID, e.Raw)
 	} else if e.MsgType == event.StatusUpdate && e.FromUserID > 0 {
-		followers, ok := f.followers[e.FromUserID].(map[uint64]bool)
+		followers, ok := fs.followers[e.FromUserID].(map[uint64]bool)
+		// log.Println("DEBUG: STATUS UPDATE: ", e.Number, e.FromUserID, followers)
 		if !ok {
 			// log.Printf("ERROR: getting the followers: client `%v` does not connected\n", e.FromUserID)
 			return
 		}
-		// log.Println(">>>> FLAG; STATUS UPDATE: ", event.Number, event.FromUserID)
 		wg := &sync.WaitGroup{}
 		for fl := range followers {
 			wg.Add(1)
 			eventCpy := (*e).Raw
 			go func(clientId uint64, eventRaw string) {
 				defer wg.Done()
-				f.sendEvent(clientId, eventRaw)
+				fs.sendEvent(clientId, eventRaw)
 			}(fl, eventCpy)
 		}
 		wg.Wait()
 	} else if e.MsgType == event.Unfollow && e.FromUserID > 0 && e.ToUserID > 0 {
-		f.removeFollower(e.ToUserID, e.FromUserID)
+		fs.removeFollower(e.ToUserID, e.FromUserID)
 	}
 }
 
-func (f *FollowerServer) registerClient(c *follower.Client) {
-	f.clients[c.ID] = c.Chan
-	f.followers[c.ID] = make(map[uint64]bool)
+func (fs *FollowerServer) initState() {
+	fs.clients = make(kv.KVStore)
+	fs.followers = make(kv.KVStore)
+}
+
+func (fs *FollowerServer) registerClient(c *follower.Client) {
+	fs.clients[c.ID] = c.Chan
+	fs.followers[c.ID] = make(map[uint64]bool)
+}
+
+func (fs *FollowerServer) dropClient(clientId uint64) {
+	delete(fs.clients, clientId)
+}
+
+func (fs *FollowerServer) dropFollowers(clientId uint64) {
+	delete(fs.followers, clientId)
+}
+
+func (fs *FollowerServer) dropClientsAll() {
+	it := fs.clients.GetIterator()
+	for {
+		id, ok := it.Next()
+		if !ok {
+			break
+		}
+		fs.dropClient(id)
+	}
+}
+
+func (fs *FollowerServer) dropFollowersAll() {
+	it := fs.followers.GetIterator()
+	for {
+		id, ok := it.Next()
+		if !ok {
+			break
+		}
+		fs.dropFollowers(id)
+	}
+}
+
+func (fs *FollowerServer) cleanState() {
+	fs.dropClientsAll()
+	fs.dropFollowersAll()
 }
 
 func (fs *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
@@ -114,8 +162,7 @@ func (fs *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
 	reqChan <- req
 	err := <-req.Response
 	if err != nil {
-		delete(fs.clients, clientId)
-		delete(fs.followers, clientId)
+		fs.dropClient(clientId)
 		log.Printf("INFO: Dropping client `%v` with error: %v\n", clientId, err)
 	}
 }
@@ -128,17 +175,12 @@ func (fs *FollowerServer) coordinator() {
 			fs.registerClient(client.(*follower.Client))
 		}
 		e = fs.EventsServer.GetMsg().(*event.Event) // NOTE: will block if the queue is empty
-		fs.transmitNextEvent(e)
+		fs.processEvent(e)
 	}
 }
 
-func (fs *FollowerServer) initStores() {
-	fs.clients = make(kv.KVStore)
-	fs.followers = make(kv.KVStore)
-}
-
 func (fs *FollowerServer) Start() {
-	fs.initStores()
+	fs.initState()
 	go fs.ClientServer.Start()
 	go fs.EventsServer.Start()
 	go fs.coordinator()

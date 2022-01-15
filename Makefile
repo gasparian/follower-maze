@@ -33,7 +33,7 @@ simulate-test:
 	logLevel=info \
 	totalEvents=10000 \
 	concurrencyLevel=10 \
-	numberOfUsers=10 \
+	numberOfUsers=100 \
 	timeout=20000 \
 	maxEventSourceBatchSize=100 \
 	./simulator/followermaze.sh

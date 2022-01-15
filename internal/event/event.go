@@ -7,14 +7,17 @@ import (
 )
 
 const (
-	Follow       = 70
-	Unfollow     = 85
-	Broadcast    = 66
-	PrivateMsg   = 80
-	StatusUpdate = 83
+	Follow         = 70
+	Unfollow       = 85
+	Broadcast      = 66
+	PrivateMsg     = 80
+	StatusUpdate   = 83
+	ServerShutdown = -1
 )
 
 var (
+	ShutdownEvent = &Event{MsgType: ServerShutdown}
+
 	badEventError = errors.New("Event contains less then 2 fields")
 )
 

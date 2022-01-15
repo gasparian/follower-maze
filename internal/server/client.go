@@ -50,7 +50,6 @@ func (ca *ClientAcceptor) handler(conn net.Conn) {
 		log.Printf("INFO: Client connection closed: %v\n", err)
 		return
 	}
-	//
 	req := strings.Fields(string(buff[:read_len]))
 	clientId, err := strconv.ParseUint(req[0], 10, 64)
 	if err != nil {
@@ -62,9 +61,7 @@ func (ca *ClientAcceptor) handler(conn net.Conn) {
 		Chan: make(chan *follower.Request),
 	}
 	ca.clientsChan <- cl
-
 	log.Printf("INFO: Client `%v` connected\n", clientId)
-	//
 
 	var clientReqBuff bytes.Buffer
 	var clientReq *follower.Request
@@ -79,7 +76,7 @@ func (ca *ClientAcceptor) handler(conn net.Conn) {
 			if err != nil {
 				return
 			}
-			// log.Println("DEBUG: >>>> WROTE: ", clientId, ", ", clientReq.Payload)
+			// log.Println("DEBUG: WROTE: ", clientId, ", ", clientReq.Payload)
 		default:
 			err := ss.ConnCheck(conn)
 			if err != nil {
