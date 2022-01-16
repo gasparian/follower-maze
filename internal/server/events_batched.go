@@ -31,7 +31,7 @@ func NewEventsParserBatched(maxBuffSize, maxBatchSize, eventsQueueMaxSize, readT
 	}
 }
 
-func (ep *EventsParserBatched) GetMsg() interface{} {
+func (ep *EventsParserBatched) GetMsg() *event.Event {
 	return <-ep.eventsQueue
 }
 
@@ -48,7 +48,6 @@ func (ep *EventsParserBatched) sortAndSend(batchParsed []*event.Event) []*event.
 		return batchParsed[i].Number < batchParsed[j].Number
 	})
 	for _, e := range batchParsed {
-		// log.Println("DEBUG: ", e.Number)
 		ep.eventsQueue <- e
 	}
 	return batchParsed[:0]

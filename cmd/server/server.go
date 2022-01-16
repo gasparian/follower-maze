@@ -7,6 +7,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/gasparian/follower-maze/internal/server"
+	"github.com/gasparian/follower-maze/internal/event"
 )
 
 var (
@@ -28,7 +29,7 @@ func main() {
 
 	runtime.GOMAXPROCS(config.Runtime.MaxProcs)
 
-	var eventsServer server.EventsServer
+	var eventsServer server.EventsServer[*event.Event]
 	if config.Events.Batched {
 		eventsServer = server.NewEventsParserBatched(
 			config.Events.MaxBuffSizeBytes,

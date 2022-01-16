@@ -8,21 +8,24 @@ import (
 	"github.com/gasparian/follower-maze/internal/follower"
 )
 
-type EventsServer interface {
-	GetMsg() interface{}
+type EventsServer[T any] interface {
+	GetMsg() T
 	Start()
 	Stop()
 }
 
 type FollowerServer struct {
 	mx           sync.RWMutex
-	clientServer EventsServer
-	eventsServer EventsServer
+	clientServer EventsServer[*follower.Client]
+	eventsServer EventsServer[*event.Event]
 	clients      map[uint64]chan *follower.Request
 	followers    map[uint64]map[uint64]bool
 }
 
-func NewFollowerServer(clientServer, eventsServer EventsServer) *FollowerServer {
+func NewFollowerServer(
+		clientServer EventsServer[*follower.Client], 
+		eventsServer EventsServer[*event.Event],
+	) *FollowerServer {
 	fs := &FollowerServer{}
 	fs.clientServer = clientServer
 	fs.eventsServer = eventsServer
@@ -152,9 +155,9 @@ func (fs *FollowerServer) coordinator() {
 	for {
 		client := fs.clientServer.GetMsg() // NOTE: non-blocking
 		if client != nil {
-			fs.registerClient(client.(*follower.Client))
+			fs.registerClient(client)
 		}
-		e = fs.eventsServer.GetMsg().(*event.Event) // NOTE: will block if the queue is empty
+		e = fs.eventsServer.GetMsg() // NOTE: will block if the queue is empty
 		fs.processEvent(e)
 	}
 }

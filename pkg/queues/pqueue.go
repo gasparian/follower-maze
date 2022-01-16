@@ -1,64 +1,65 @@
 package queues
 
 import (
-	"container/heap"
 	"sync"
+
+	"github.com/gasparian/follower-maze/pkg/heap"
 )
 
-type BlockingPQueue struct {
+type BlockingPQueue[T any] struct {
 	mx       *sync.RWMutex
-	items    heap.Interface
+	heap    *heap.Heap[T]
 	count    uint64
 	maxSize  uint64
 	notEmpty *sync.Cond
 	notFull  *sync.Cond
 }
 
-func New(h heap.Interface, maxSize uint64) *BlockingPQueue {
+func NewPQueue[T any] (comp func(a, b T) bool, maxSize uint64) *BlockingPQueue[T] {
 	mx := &sync.RWMutex{}
-	return &BlockingPQueue{
+	return &BlockingPQueue[T]{
 		mx:       mx,
-		items:    h,
+		heap:    heap.NewHeap(comp),
 		maxSize:  maxSize,
 		notEmpty: sync.NewCond(mx),
 		notFull:  sync.NewCond(mx),
 	}
 }
 
-func (p *BlockingPQueue) Push(v interface{}) {
+func (p *BlockingPQueue[T]) Push(v T) {
 	p.mx.Lock()
 	defer p.mx.Unlock()
 	if p.count == p.maxSize {
 		p.notFull.Wait()
 	}
-	heap.Push(p.items, v)
+	p.heap.Push(v)
 	p.count++
 	p.notEmpty.Signal()
 }
 
-func (p *BlockingPQueue) Pop() interface{} {
+func (p *BlockingPQueue[T]) Pop() T {
 	p.mx.Lock()
 	defer p.mx.Unlock()
 	if p.count == 0 {
 		p.notEmpty.Wait()
 	}
-	val := heap.Pop(p.items)
+	val := p.heap.Pop()
 	p.count--
 	p.notFull.Signal()
 	return val
 }
 
-func (p *BlockingPQueue) Len() int {
+func (p *BlockingPQueue[T]) Len() int {
 	p.mx.RLock()
 	defer p.mx.RUnlock()
-	return p.items.Len()
+	return p.heap.Len()
 }
 
-func (p *BlockingPQueue) Clear() {
+func (p *BlockingPQueue[T]) Clear() {
 	p.mx.Lock()
 	defer p.mx.Unlock()
 	for i := uint64(0); i < p.count; i++ {
-		p.items.Pop()
+		p.heap.Pop()
 	}
 	p.count = uint64(0)
 	p.notFull.Broadcast()

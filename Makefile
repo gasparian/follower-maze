@@ -1,4 +1,4 @@
-TEST=go test -v -cover -race -count=1 -timeout 30s $(1)
+TEST=gobeta test -v -cover -race -count=1 -timeout 30s $(1)
 DEFAULT_GOAL := help
 
 .SILENT:
@@ -17,10 +17,10 @@ help:
 	echo '    test           run tests'
 
 build:
-	go build -v ./cmd/server
+	gobeta build -v ./cmd/server
 
 build-static:
-	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 gobeta build \
 		-ldflags "-w -extldflags -static" \
 		-tags osusergo,netgo \
 		-v -a ./cmd/server

@@ -30,7 +30,7 @@ func NewClientAcceptor(maxBuffSizeBytes, eventsQueueMaxSize int, servicePort str
 	}
 }
 
-func (ca *ClientAcceptor) GetMsg() interface{} {
+func (ca *ClientAcceptor) GetMsg() *follower.Client {
 	select {
 	case client := <-ca.clientsChan:
 		return client

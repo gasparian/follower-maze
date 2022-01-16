@@ -15,16 +15,19 @@ type EventsParserPQueue struct {
 	mx                 sync.RWMutex
 	maxBuffSize        int
 	server             ss.SocketServer
-	eventsQueue        *q.BlockingPQueue
+	eventsQueue        *q.BlockingPQueue[*event.Event]
 	largestEventNumber uint64
 	shutdownEvent      *event.Event
 }
 
 func NewEventsParserPQueue(maxBuffSize, eventsQueueMaxSize int, servicePort string) *EventsParserPQueue {
 	return &EventsParserPQueue{
-		maxBuffSize:   maxBuffSize,
-		server:        ss.NewTCPServer(servicePort),
-		eventsQueue:   q.New(&event.EventsMinHeap{}, uint64(eventsQueueMaxSize)),
+		maxBuffSize: maxBuffSize,
+		server:      ss.NewTCPServer(servicePort),
+		eventsQueue: q.NewPQueue(
+			func(a, b *event.Event) bool { return a.Number < b.Number },
+			uint64(eventsQueueMaxSize),
+		),
 		shutdownEvent: event.ShutdownEvent,
 	}
 }
@@ -35,7 +38,7 @@ func (ep *EventsParserPQueue) GetMaxBuffSize() int {
 	return ep.maxBuffSize
 }
 
-func (ep *EventsParserPQueue) GetMsg() interface{} {
+func (ep *EventsParserPQueue) GetMsg() *event.Event {
 	return ep.eventsQueue.Pop()
 }
 
