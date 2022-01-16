@@ -6,7 +6,6 @@ import (
 
 	"github.com/gasparian/follower-maze/internal/event"
 	"github.com/gasparian/follower-maze/internal/follower"
-	kv "github.com/gasparian/follower-maze/pkg/kvstore"
 )
 
 type EventsServer interface {
@@ -19,16 +18,16 @@ type FollowerServer struct {
 	mx           sync.RWMutex
 	clientServer EventsServer
 	eventsServer EventsServer
-	clients      kv.KVStore
-	followers    kv.KVStore
+	clients      map[uint64]chan *follower.Request
+	followers    map[uint64]map[uint64]bool
 }
 
 func NewFollowerServer(clientServer, eventsServer EventsServer) *FollowerServer {
 	fs := &FollowerServer{}
 	fs.clientServer = clientServer
 	fs.eventsServer = eventsServer
-	fs.clients = make(kv.KVStore)
-	fs.followers = make(kv.KVStore)
+	fs.clients = make(map[uint64]chan *follower.Request)
+	fs.followers = make(map[uint64]map[uint64]bool)
 	return fs
 }
 
@@ -38,7 +37,7 @@ func (fs *FollowerServer) addFollower(clientId, followerId uint64) {
 		// log.Printf("ERROR: adding the follower: client `%v` does not connected\n", clientId)
 		return
 	}
-	followers, ok := fs.followers[clientId].(map[uint64]bool)
+	followers, ok := fs.followers[clientId]
 	if !ok {
 		followers = make(map[uint64]bool)
 		fs.followers[clientId] = followers
@@ -48,7 +47,7 @@ func (fs *FollowerServer) addFollower(clientId, followerId uint64) {
 }
 
 func (fs *FollowerServer) removeFollower(clientId, followerId uint64) {
-	followers, ok := fs.followers[clientId].(map[uint64]bool)
+	followers, ok := fs.followers[clientId]
 	if !ok {
 		// log.Printf("ERROR: removing the follower: client `%v` does not connected\n", clientId)
 		return
@@ -58,18 +57,12 @@ func (fs *FollowerServer) removeFollower(clientId, followerId uint64) {
 }
 
 func (fs *FollowerServer) processEvent(e *event.Event) {
-	// log.Println(">>>>> <<<<<<: ", event.Raw)
 	if e.MsgType == event.ServerShutdown {
 		fs.cleanState()
 	} else if e.MsgType == event.Broadcast {
-		it := fs.clients.GetIterator()
 		// log.Println(">>>> FLAG; BROADCAST", event.Number)
 		wg := &sync.WaitGroup{}
-		for {
-			id, ok := it.Next()
-			if !ok {
-				break
-			}
+		for id := range fs.clients {
 			eventCpy := (*e).Raw
 			wg.Add(1)
 			go func(clientId uint64, eventRaw string) {
@@ -85,7 +78,7 @@ func (fs *FollowerServer) processEvent(e *event.Event) {
 	} else if e.MsgType == event.PrivateMsg && e.FromUserID > 0 && e.ToUserID > 0 {
 		fs.sendEvent(e.ToUserID, e.Raw)
 	} else if e.MsgType == event.StatusUpdate && e.FromUserID > 0 {
-		followers, ok := fs.followers[e.FromUserID].(map[uint64]bool)
+		followers, ok := fs.followers[e.FromUserID]
 		// log.Println("DEBUG: STATUS UPDATE: ", e.Number, e.FromUserID, followers)
 		if !ok {
 			// log.Printf("ERROR: getting the followers: client `%v` does not connected\n", e.FromUserID)
@@ -120,23 +113,13 @@ func (fs *FollowerServer) dropFollowers(clientId uint64) {
 }
 
 func (fs *FollowerServer) dropClientsAll() {
-	it := fs.clients.GetIterator()
-	for {
-		id, ok := it.Next()
-		if !ok {
-			break
-		}
+	for id := range fs.clients {
 		fs.dropClient(id)
 	}
 }
 
 func (fs *FollowerServer) dropFollowersAll() {
-	it := fs.followers.GetIterator()
-	for {
-		id, ok := it.Next()
-		if !ok {
-			break
-		}
+	for id := range fs.followers {
 		fs.dropFollowers(id)
 	}
 }
@@ -147,7 +130,7 @@ func (fs *FollowerServer) cleanState() {
 }
 
 func (fs *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
-	reqChan, ok := fs.clients[clientId].(chan *follower.Request)
+	reqChan, ok := fs.clients[clientId]
 	if !ok {
 		// log.Printf("ERROR: trying to send an event: client `%v` does not connected\n", clientId)
 		return
