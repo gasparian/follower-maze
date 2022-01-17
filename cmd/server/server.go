@@ -6,8 +6,8 @@ import (
 	"runtime"
 
 	"github.com/BurntSushi/toml"
-	"github.com/gasparian/follower-maze/internal/server"
 	"github.com/gasparian/follower-maze/internal/event"
+	"github.com/gasparian/follower-maze/internal/server"
 )
 
 var (

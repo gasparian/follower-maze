@@ -23,9 +23,9 @@ type FollowerServer struct {
 }
 
 func NewFollowerServer(
-		clientServer EventsServer[*follower.Client], 
-		eventsServer EventsServer[*event.Event],
-	) *FollowerServer {
+	clientServer EventsServer[*follower.Client],
+	eventsServer EventsServer[*event.Event],
+) *FollowerServer {
 	fs := &FollowerServer{}
 	fs.clientServer = clientServer
 	fs.eventsServer = eventsServer

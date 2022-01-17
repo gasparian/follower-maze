@@ -15,11 +15,11 @@ type BlockingPQueue[T any] struct {
 	notFull  *sync.Cond
 }
 
-func NewPQueue[T any] (comp func(a, b T) bool, maxSize uint64) *BlockingPQueue[T] {
+func NewPQueue[T any](comp func(a, b T) bool, maxSize uint64) *BlockingPQueue[T] {
 	mx := &sync.RWMutex{}
 	return &BlockingPQueue[T]{
 		mx:       mx,
-		heap:    heap.NewHeap(comp),
+		heap:     heap.NewHeap(comp),
 		maxSize:  maxSize,
 		notEmpty: sync.NewCond(mx),
 		notFull:  sync.NewCond(mx),
