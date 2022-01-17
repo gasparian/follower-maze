@@ -8,7 +8,7 @@ import (
 
 type BlockingPQueue[T any] struct {
 	mx       *sync.RWMutex
-	heap    *heap.Heap[T]
+	heap   *heap.Heap[T]
 	count    uint64
 	maxSize  uint64
 	notEmpty *sync.Cond
