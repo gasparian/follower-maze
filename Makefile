@@ -2,7 +2,13 @@ TEST=gobeta test -v -cover -race -count=1 -timeout 30s $(1)
 DEFAULT_GOAL := help
 
 .SILENT:
-.PHONY: help, build, build-static, run-simulator, test
+.PHONY: \
+	help, \
+	install-pre-commit-hook, \
+	build, \
+	build-static, \
+	run-simulator, \
+	test
 
 help:
 	echo
@@ -15,6 +21,9 @@ help:
 	echo '    simulate       run events and clients simulator'
 	echo '    simulate-test  run simulator configured just to test app functionality'
 	echo '    test           run tests'
+
+install-hooks:
+	cp -rf .githooks/pre-commit.sh .git/hooks/pre-commit.sh
 
 build:
 	gobeta build -v ./cmd/server
