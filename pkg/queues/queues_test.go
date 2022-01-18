@@ -43,21 +43,16 @@ func TestPQueuePushPop(t *testing.T) {
 func TestPQueueClear(t *testing.T) {
 	pq := NewPQueue[int](comp, 3)
 	wg := &sync.WaitGroup{}
-	waitCh := make(chan bool)
-	for i := uint64(0); i < pq.maxSize*2; i++ {
+	for i := uint64(0); i < 3; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			pq.Push(1)
 		}()
 	}
-	pq.Clear()
 	wg.Wait()
-	close(waitCh)
-
-	select {
-	case <-waitCh:
-	case <-time.After(timeoutMs):
-		t.Error("timeout")
+	pq.Clear()
+	if pq.Len() > 0 {
+		t.Error()
 	}
 }

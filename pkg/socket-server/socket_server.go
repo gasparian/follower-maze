@@ -42,10 +42,8 @@ func ConnCheck(conn net.Conn) error {
 	return sysErr
 }
 
-type connHandler func(net.Conn)
-
 type SocketServer interface {
-	Start(connHandler)
+	Start(func(net.Conn))
 	Stop()
 }
 
@@ -57,6 +55,7 @@ type TCPSocketServer struct {
 
 func NewTCPServer(servicePort string) *TCPSocketServer {
 	return &TCPSocketServer{
+		stopSignal:  make(chan bool),
 		servicePort: servicePort,
 	}
 }
@@ -77,7 +76,7 @@ func (ss *TCPSocketServer) listenStopSignal(listener *net.TCPListener) {
 	}()
 }
 
-func (ss *TCPSocketServer) Start(h connHandler) {
+func (ss *TCPSocketServer) Start(h func(net.Conn)) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", ss.servicePort)
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
@@ -90,7 +89,7 @@ func (ss *TCPSocketServer) Start(h connHandler) {
 			return
 		}
 		if err != nil {
-			log.Println(err)
+			log.Println("SOCKET SERVER:", err)
 			continue
 		}
 		go func() {

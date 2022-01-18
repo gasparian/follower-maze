@@ -24,7 +24,7 @@ help:
 	echo '    test           run tests'
 
 install-hooks:
-	cp -rf .githooks/pre-commit.sh .git/hooks/pre-commit.sh
+	cp -rf .githooks/pre-commit .git/hooks/pre-commit
 
 build:
 	${GO} build -v ./cmd/server
