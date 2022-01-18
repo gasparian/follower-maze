@@ -8,8 +8,7 @@ This solution based on top of *unstable* golang version `1.18beta1`, since I'm u
 To sintall beta version, do the following:  
   1. Most probably you already have go installed, in my case it was the latest stable version `1.17.6`. In this case you only need to run: `go install golang.org/dl/go1.18beta1@latest`  
   2. Download updates: `go1.18beta1 download`  
-  3. Make an alias (add to `~/.bashrc`): `alias gobeta=go1.18beta1`  
-  4. Check that it works, by running: `gobeta version`  
+  4. Check that it works, by running: `go1.18beta1 version`  
 
 ### TODO  
  - replace default logger with `glog` and be able to specify levels  

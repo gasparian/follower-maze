@@ -1,13 +1,14 @@
-TEST=gobeta test -v -cover -race -count=1 -timeout 30s $(1)
+GO=go1.18beta1
+TEST=${GO} test -v -cover -race -count=1 -timeout 30s $(1)
 DEFAULT_GOAL := help
 
 .SILENT:
 .PHONY: \
-	help, \
-	install-pre-commit-hook, \
-	build, \
-	build-static, \
-	run-simulator, \
+	help \
+	install-hooks \
+	build \
+	build-static \
+	run-simulator \
 	test
 
 help:
@@ -26,10 +27,10 @@ install-hooks:
 	cp -rf .githooks/pre-commit.sh .git/hooks/pre-commit.sh
 
 build:
-	gobeta build -v ./cmd/server
+	${GO} build -v ./cmd/server
 
 build-static:
-	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 gobeta build \
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 ${GO} build \
 		-ldflags "-w -extldflags -static" \
 		-tags osusergo,netgo \
 		-v -a ./cmd/server
