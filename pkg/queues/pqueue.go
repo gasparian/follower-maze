@@ -8,7 +8,7 @@ import (
 
 type BlockingPQueue[T any] struct {
 	mx       *sync.RWMutex
-	heap   *heap.Heap[T]
+	heap     *heap.Heap[T]
 	count    uint64
 	maxSize  uint64
 	notEmpty *sync.Cond
@@ -19,7 +19,7 @@ func NewPQueue[T any](comp func(a, b T) bool, maxSize uint64) *BlockingPQueue[T]
 	mx := &sync.RWMutex{}
 	return &BlockingPQueue[T]{
 		mx:       mx,
-		heap:     heap.NewHeap(comp),
+		heap:     heap.NewHeap[T](comp),
 		maxSize:  maxSize,
 		notEmpty: sync.NewCond(mx),
 		notFull:  sync.NewCond(mx),

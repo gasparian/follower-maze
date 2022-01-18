@@ -49,4 +49,4 @@ simulate-test:
 
 .PHONY: test
 test:
-	$(call TEST,./internal/...)
+	$(call TEST,./...)

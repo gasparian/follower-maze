@@ -24,7 +24,7 @@ func NewEventsParserPQueue(maxBuffSize, eventsQueueMaxSize int, servicePort stri
 	return &EventsParserPQueue{
 		maxBuffSize: maxBuffSize,
 		server:      ss.NewTCPServer(servicePort),
-		eventsQueue: q.NewPQueue(
+		eventsQueue: q.NewPQueue[*event.Event](
 			func(a, b *event.Event) bool { return a.Number < b.Number },
 			uint64(eventsQueueMaxSize),
 		),

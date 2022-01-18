@@ -63,30 +63,3 @@ func New(raw string) (*Event, error) {
 		ToUserID:   toUserID,
 	}, nil
 }
-
-type EventsMinHeap []*Event
-
-func (h EventsMinHeap) Len() int {
-	return len(h)
-}
-
-func (h EventsMinHeap) Less(i, j int) bool {
-	return h[i].Number < h[j].Number
-}
-
-func (h EventsMinHeap) Swap(i, j int) {
-	h[i], h[j] = h[j], h[i]
-}
-
-func (h *EventsMinHeap) Push(x interface{}) {
-	*h = append(*h, x.(*Event))
-}
-
-func (h *EventsMinHeap) Pop() interface{} {
-	old := *h
-	tailIndex := old.Len() - 1
-	tail := old[tailIndex]
-	old[tailIndex] = nil
-	*h = old[:tailIndex]
-	return tail
-}
