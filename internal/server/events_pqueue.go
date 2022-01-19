@@ -80,7 +80,7 @@ func (ep *EventsParserPQueue) handler(conn net.Conn) {
 			batch = batch[:len(batch)-1]
 		}
 		for _, e := range batch {
-			ev, err := event.New(e)
+			ev, err := event.NewEvent(e)
 			if err != nil {
 				log.Printf("ERROR: processing event `%v`: `%v`\n", e, err)
 				continue

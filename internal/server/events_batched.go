@@ -70,10 +70,6 @@ func (ep *EventsParserBatched) handler(conn net.Conn) {
 				parsedEventsChan <- event.ShutdownEvent
 				return
 			}
-
-			if read_len == 0 {
-				continue
-			}
 			partialEvents.WriteString(string(buff[:read_len]))
 			str := partialEvents.String()
 			partialEvents.Reset()
@@ -84,7 +80,7 @@ func (ep *EventsParserBatched) handler(conn net.Conn) {
 			}
 			log.Printf("DEBUG: read %v bytes; parsed %v events\n", read_len, len(batch))
 			for _, ev := range batch {
-				parsedEvent, err := event.New(ev)
+				parsedEvent, err := event.NewEvent(ev)
 				if err != nil {
 					log.Printf("ERROR: processing event `%v`: `%v`\n", ev, err)
 					continue

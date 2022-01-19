@@ -47,6 +47,32 @@ func (ca *ClientAcceptor) Stop() {
 	ca.server.Stop()
 }
 
+func serveClient(conn net.Conn, cl *follower.Client) {
+	var clientReqBuff bytes.Buffer
+	var clientReq *follower.Request
+	for {
+		select {
+		case clientReq = <-cl.Chan:
+			clientReqBuff.WriteString(clientReq.Payload)
+			clientReqBuff.WriteRune('\n')
+			_, err := conn.Write(clientReqBuff.Bytes())
+			clientReqBuff.Reset()
+			clientReq.Response <- err
+			if err != nil {
+				return
+			}
+			// log.Println("DEBUG: WROTE: ", clientId, ", ", clientReq.Payload)
+		default:
+			err := ss.ConnCheck(conn)
+			if err != nil {
+				log.Printf("INFO: Client `%v` disconnected: %v\n", cl.ID, err)
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
 func (ca *ClientAcceptor) handler(conn net.Conn) {
 	ca.mx.RLock()
 	maxBuffSizeBytes := ca.maxBuffSizeBytes
@@ -71,27 +97,5 @@ func (ca *ClientAcceptor) handler(conn net.Conn) {
 	ca.clientsChan <- cl
 	log.Printf("INFO: Client `%v` connected\n", clientId)
 
-	var clientReqBuff bytes.Buffer
-	var clientReq *follower.Request
-	for {
-		select {
-		case clientReq = <-cl.Chan:
-			clientReqBuff.WriteString(clientReq.Payload)
-			clientReqBuff.WriteRune('\n')
-			_, err := conn.Write(clientReqBuff.Bytes())
-			clientReqBuff.Reset()
-			clientReq.Response <- err
-			if err != nil {
-				return
-			}
-			// log.Println("DEBUG: WROTE: ", clientId, ", ", clientReq.Payload)
-		default:
-			err := ss.ConnCheck(conn)
-			if err != nil {
-				log.Printf("INFO: Client `%v` disconnected: %v\n", clientId, err)
-				return
-			}
-			time.Sleep(5 * time.Millisecond)
-		}
-	}
+	serveClient(conn, cl) // NOTE: blocking
 }

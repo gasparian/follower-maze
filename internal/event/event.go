@@ -29,7 +29,18 @@ type Event struct {
 	ToUserID   uint64
 }
 
-func New(raw string) (*Event, error) {
+func Equal(a, b *Event) bool {
+	if a.Raw == b.Raw &&
+		a.Number == b.Number &&
+		a.MsgType == b.MsgType &&
+		a.FromUserID == b.FromUserID &&
+		a.ToUserID == b.ToUserID {
+		return true
+	}
+	return false
+}
+
+func NewEvent(raw string) (*Event, error) {
 	var fromUserID, toUserID uint64
 	var parsed []string = strings.Split(raw, "|")
 	var cleaned []string

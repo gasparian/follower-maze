@@ -9,10 +9,10 @@ func TestHeap(t *testing.T) {
 	h.Push(1)
 	h.Push(1)
 	if h.Len() != 2 {
-		t.Error()
+		t.Fatal()
 	}
 	v := h.Pop()
 	if v != 1 {
-		t.Error()
+		t.Fatal()
 	}
 }

@@ -36,7 +36,7 @@ func TestPQueuePushPop(t *testing.T) {
 	select {
 	case <-waitCh:
 	case <-time.After(timeoutMs):
-		t.Error("timeout")
+		t.Fatal("timeout")
 	}
 }
 
@@ -53,6 +53,6 @@ func TestPQueueClear(t *testing.T) {
 	wg.Wait()
 	pq.Clear()
 	if pq.Len() > 0 {
-		t.Error()
+		t.Fatal()
 	}
 }
