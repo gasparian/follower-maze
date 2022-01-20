@@ -3,6 +3,7 @@ package server
 import (
 	"log"
 	"sync"
+	"sync/atomic"
 
 	"github.com/gasparian/follower-maze/internal/event"
 	"github.com/gasparian/follower-maze/internal/follower"
@@ -20,6 +21,8 @@ type FollowerServer struct {
 	eventsServer EventsServer[*event.Event]
 	clients      map[uint64]chan *follower.Request
 	followers    map[uint64]map[uint64]bool
+	stopSignal   chan bool
+	stoppedFlag  int32
 }
 
 func NewFollowerServer(
@@ -31,6 +34,7 @@ func NewFollowerServer(
 	fs.eventsServer = eventsServer
 	fs.clients = make(map[uint64]chan *follower.Request)
 	fs.followers = make(map[uint64]map[uint64]bool)
+	fs.stopSignal = make(chan bool)
 	return fs
 }
 
@@ -140,7 +144,7 @@ func (fs *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
 	}
 	req := &follower.Request{
 		Payload:  eventRaw,
-		Response: make(chan error, 1),
+		Response: make(chan error),
 	}
 	reqChan <- req
 	err := <-req.Response
@@ -150,21 +154,49 @@ func (fs *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
 	}
 }
 
+func (fs *FollowerServer) isStopped() bool {
+	stopped := atomic.LoadInt32(&fs.stoppedFlag)
+	if stopped > 0 {
+		return true
+	}
+	return false
+}
+
 func (fs *FollowerServer) coordinator() {
 	var e *event.Event
 	for {
+		if fs.isStopped() {
+			return
+		}
 		client := fs.clientServer.GetMsg() // NOTE: non-blocking
 		if client != nil {
 			fs.registerClient(client)
 		}
 		e = fs.eventsServer.GetMsg() // NOTE: will block if the queue is empty
 		fs.processEvent(e)
+		// TODO: while blocking - no new clients could be connected ;(
 	}
 }
 
+func (fs *FollowerServer) listenStopSignal() {
+	<-fs.stopSignal
+	fs.eventsServer.Stop()
+	fs.clientServer.Stop()
+	atomic.StoreInt32(&fs.stoppedFlag, 1)
+	fs.stopSignal <- true
+}
+
 func (fs *FollowerServer) Start() {
+	go fs.listenStopSignal()
 	go fs.clientServer.Start()
 	go fs.eventsServer.Start()
 	go fs.coordinator()
 	select {}
+}
+
+func (fs *FollowerServer) Stop() {
+	if !fs.isStopped() {
+		fs.stopSignal <- true
+		<-fs.stopSignal
+	}
 }

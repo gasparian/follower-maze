@@ -1,6 +1,6 @@
 # Follower Maze  
 
-pqueue - 1743 sec., 10kk events, ~5.74k RPS on average
+pqueue - 542 sec., 10kk events, ~18.4k RPS on average
 
 ### How to run  
 

@@ -70,7 +70,6 @@ func (ep *EventsParserPQueue) handler(conn net.Conn) {
 		if read_len == 0 {
 			continue
 		}
-		parsed := make([]*event.Event, 0)
 		partialEvents.WriteString(string(buff[:read_len]))
 		str := partialEvents.String()
 		partialEvents.Reset()
@@ -85,12 +84,9 @@ func (ep *EventsParserPQueue) handler(conn net.Conn) {
 				log.Printf("ERROR: processing event `%v`: `%v`\n", e, err)
 				continue
 			}
-			parsed = append(parsed, ev)
+			ep.eventsQueue.Push(ev)
 			ep.updateLargestEventNumber(ev.Number)
 		}
-		log.Printf("DEBUG: read %v bytes; parsed %v events\n", read_len, len(parsed))
-		for _, p := range parsed {
-			ep.eventsQueue.Push(p)
-		}
+		log.Printf("DEBUG: read %v bytes\n", read_len)
 	}
 }

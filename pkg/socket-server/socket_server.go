@@ -72,41 +72,38 @@ func (ss *TCPSocketServer) isStopped() bool {
 }
 
 func (ss *TCPSocketServer) listenStopSignal(listener *net.TCPListener) {
-	go func() {
-		<-ss.stopSignal
-		listener.Close()
-		atomic.StoreInt32(&ss.stoppedFlag, 1)
-		wg := sync.WaitGroup{}
-		for _, ch := range ss.connsChans {
-			wg.Add(1)
-			go func(ch chan bool) {
-				defer wg.Done()
-				ch <- true
-			}(ch)
-		}
-		wg.Wait()
-	}()
+	<-ss.stopSignal
+	listener.Close()
+	atomic.StoreInt32(&ss.stoppedFlag, 1)
+	wg := sync.WaitGroup{}
+	for _, ch := range ss.connsChans {
+		wg.Add(1)
+		go func(ch chan bool) {
+			defer wg.Done()
+			ch <- true
+		}(ch)
+	}
+	wg.Wait()
+	ss.stopSignal <- true
 }
 
-func connListenStopSignal(conn net.Conn, stopSignal chan bool) {
-	go func() {
-		for {
-			select {
-			case <-stopSignal:
-				conn.Close()
-				return
-			default:
-				time.Sleep(5 * time.Millisecond)
-			}
+func connListenStopSignal(conn net.Conn, connStopSignal chan bool) {
+	for {
+		select {
+		case <-connStopSignal:
+			conn.Close()
+			return
+		default:
+			time.Sleep(5 * time.Millisecond)
 		}
-	}()
+	}
 }
 
 func (ss *TCPSocketServer) Start(h func(net.Conn)) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", ss.servicePort)
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
-	ss.listenStopSignal(listener)
+	go ss.listenStopSignal(listener)
 	checkError(err)
 	log.Printf("INFO: Starting tcp server %s\n", tcpAddr)
 	for {
@@ -123,7 +120,7 @@ func (ss *TCPSocketServer) Start(h func(net.Conn)) {
 		ss.connsChans = append(ss.connsChans, connStopSignal)
 		go func() {
 			defer conn.Close()
-			connListenStopSignal(conn, connStopSignal)
+			go connListenStopSignal(conn, connStopSignal)
 			h(conn)
 		}()
 	}
@@ -132,5 +129,6 @@ func (ss *TCPSocketServer) Start(h func(net.Conn)) {
 func (ss *TCPSocketServer) Stop() {
 	if !ss.isStopped() {
 		ss.stopSignal <- true
+		<-ss.stopSignal
 	}
 }

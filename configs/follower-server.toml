@@ -3,15 +3,15 @@ max_procs = 2
 
 [events]
 port = ":9090"
-events_queue_max_size = 10000
+events_queue_max_size = 500000
 max_buff_size_bytes = 65536
 
-batched = false
 # using in case of events sorting within the fixed batch size
+batched = false
 max_batch_size = 100 
 read_timeout_ms = 500
 
 [client]
 port = ":9099"
 max_buff_size_bytes = 16
-events_queue_max_size = 1000
+events_queue_max_size = 10000

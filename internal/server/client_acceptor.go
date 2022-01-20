@@ -61,14 +61,9 @@ func serveClient(conn net.Conn, cl *follower.Client) {
 			if err != nil {
 				return
 			}
-			// log.Println("DEBUG: WROTE: ", clientId, ", ", clientReq.Payload)
 		default:
-			err := ss.ConnCheck(conn)
-			if err != nil {
-				log.Printf("INFO: Client `%v` disconnected: %v\n", cl.ID, err)
-				return
-			}
-			time.Sleep(5 * time.Millisecond)
+			// time.Sleep(1 * time.Millisecond)
+			time.Sleep(500 * time.Microsecond)
 		}
 	}
 }
