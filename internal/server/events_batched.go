@@ -31,7 +31,7 @@ func NewEventsParserBatched(maxBuffSize, maxBatchSize, eventsQueueMaxSize, readT
 	}
 }
 
-func (ep *EventsParserBatched) GetMsg() *event.Event {
+func (ep *EventsParserBatched) GetNextMsg() *event.Event {
 	return <-ep.eventsQueue
 }
 

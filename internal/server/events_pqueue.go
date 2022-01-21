@@ -38,7 +38,7 @@ func (ep *EventsParserPQueue) GetMaxBuffSize() int {
 	return ep.maxBuffSize
 }
 
-func (ep *EventsParserPQueue) GetMsg() *event.Event {
+func (ep *EventsParserPQueue) GetNextMsg() *event.Event {
 	return ep.eventsQueue.Pop()
 }
 

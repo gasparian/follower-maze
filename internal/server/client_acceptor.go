@@ -30,7 +30,7 @@ func NewClientAcceptor(maxBuffSizeBytes, eventsQueueMaxSize int, servicePort str
 	}
 }
 
-func (ca *ClientAcceptor) GetMsg() *follower.Client {
+func (ca *ClientAcceptor) GetNextMsg() *follower.Client {
 	select {
 	case client := <-ca.clientsChan:
 		return client
@@ -47,6 +47,8 @@ func (ca *ClientAcceptor) Stop() {
 	ca.server.Stop()
 }
 
+// TODO: send events in a single loop instead of separate goroutines
+//       otherwise - need to have some delay)
 func serveClient(conn net.Conn, cl *follower.Client) {
 	var clientReqBuff bytes.Buffer
 	var clientReq *follower.Request
@@ -62,8 +64,7 @@ func serveClient(conn net.Conn, cl *follower.Client) {
 				return
 			}
 		default:
-			// time.Sleep(1 * time.Millisecond)
-			time.Sleep(500 * time.Microsecond)
+			time.Sleep(1 * time.Millisecond)
 		}
 	}
 }

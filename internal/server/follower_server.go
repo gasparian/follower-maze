@@ -10,7 +10,7 @@ import (
 )
 
 type EventsServer[T any] interface {
-	GetMsg() T
+	GetNextMsg() T
 	Start()
 	Stop()
 }
@@ -50,7 +50,6 @@ func (fs *FollowerServer) addFollower(clientId, followerId uint64) {
 		fs.followers[clientId] = followers
 	}
 	followers[followerId] = true
-	// f.followers.Set(event.ToUserID, followers) // TODO: no need to re-set?
 }
 
 func (fs *FollowerServer) removeFollower(clientId, followerId uint64) {
@@ -60,7 +59,6 @@ func (fs *FollowerServer) removeFollower(clientId, followerId uint64) {
 		return
 	}
 	delete(followers, followerId)
-	// f.followers.Set(event.ToUserID, followers) // TODO: need to re-set the map?
 }
 
 func (fs *FollowerServer) processEvent(e *event.Event) {
@@ -168,11 +166,11 @@ func (fs *FollowerServer) coordinator() {
 		if fs.isStopped() {
 			return
 		}
-		client := fs.clientServer.GetMsg() // NOTE: non-blocking
+		client := fs.clientServer.GetNextMsg() // NOTE: non-blocking
 		if client != nil {
 			fs.registerClient(client)
 		}
-		e = fs.eventsServer.GetMsg() // NOTE: will block if the queue is empty
+		e = fs.eventsServer.GetNextMsg() // NOTE: will block if the queue is empty
 		fs.processEvent(e)
 		// TODO: while blocking - no new clients could be connected ;(
 	}
