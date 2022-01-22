@@ -2,7 +2,7 @@ package server
 
 import (
 	"bytes"
-	"log"
+	// "log"
 	"net"
 	"strconv"
 	"strings"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/gasparian/follower-maze/internal/follower"
 	ss "github.com/gasparian/follower-maze/pkg/socket-server"
+	"github.com/golang/glog"
 )
 
 type clientConn struct {
@@ -96,13 +97,15 @@ func (ca *ClientAcceptor) handler(conn net.Conn) {
 	buff := make([]byte, maxBuffSizeBytes)
 	read_len, err := conn.Read(buff)
 	if err != nil {
-		log.Printf("INFO: Client connection closed: %v\n", err)
+		// log.Printf("INFO: Client connection closed: %v\n", err)
+		glog.Infof("INFO: Client connection closed: %v\n", err)
 		return
 	}
 	req := strings.Fields(string(buff[:read_len]))
 	clientID, err := strconv.ParseUint(req[0], 10, 64)
 	if err != nil {
-		log.Printf("ERROR: adding new client: %v\n", err)
+		// log.Printf("ERROR: adding new client: %v\n", err)
+		glog.Errorf("ERROR: adding new client: %v\n", err)
 		conn.Close()
 		return
 	}
@@ -117,5 +120,6 @@ func (ca *ClientAcceptor) handler(conn net.Conn) {
 		conn: conn,
 	}
 
-	log.Printf("INFO: Client `%v` connected\n", clientID)
+	// log.Printf("INFO: Client `%v` connected\n", clientID)
+	glog.Infof("INFO: Client `%v` connected\n", clientID)
 }

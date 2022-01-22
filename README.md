@@ -1,6 +1,6 @@
 # Follower Maze  
 
-pqueue - 542 sec., 10kk events, ~18.4k RPS on average
+pqueue - 400 sec., 10kk events, ~25k RPS on average
 
 ### How to run  
 
@@ -13,4 +13,3 @@ To sintall beta version, do the following:
 ### TODO  
  - replace default logger with `glog` and be able to specify levels  
  - add comments to all the public methods and variables  
- - add tests  

@@ -107,7 +107,7 @@ func (ep *EventsParserPQueue) handler(conn net.Conn) {
 		for _, p := range parsed {
 			ep.eventsQueue.Push(p)
 		}
-		log.Printf("DEBUG: read %v bytes\n", read_len)
+		// log.Printf("DEBUG: read %v bytes\n", read_len)
 	}
 }
 
@@ -175,7 +175,7 @@ func (ep *EventsParserBatched) handler(conn net.Conn) {
 				return
 			}
 			batch := streamParser.Parse(buff[:read_len])
-			log.Printf("DEBUG: read %v bytes; parsed %v events\n", read_len, len(batch))
+			// log.Printf("DEBUG: read %v bytes; parsed %v events\n", read_len, len(batch))
 			for _, ev := range batch {
 				parsedEvent, err := event.NewEvent(ev)
 				if err != nil {
