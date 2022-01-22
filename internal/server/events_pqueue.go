@@ -3,6 +3,7 @@ package server
 import (
 	"log"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 
@@ -17,7 +18,7 @@ type EventsParserPQueue struct {
 	server             ss.SocketServer
 	eventsQueue        *q.BlockingPQueue[*event.Event]
 	largestEventNumber uint64
-	shutdownEvent      *event.Event
+	shutdownEvent      event.Event
 }
 
 func NewEventsParserPQueue(maxBuffSize, eventsQueueMaxSize int, servicePort string) *EventsParserPQueue {
@@ -64,11 +65,8 @@ func (ep *EventsParserPQueue) handler(conn net.Conn) {
 		if err != nil {
 			log.Printf("INFO: Events connection closed: %v\n", err)
 			ep.shutdownEvent.Number = ep.largestEventNumber
-			ep.eventsQueue.Push(ep.shutdownEvent)
+			ep.eventsQueue.Push(&ep.shutdownEvent)
 			return
-		}
-		if read_len == 0 {
-			continue
 		}
 		partialEvents.WriteString(string(buff[:read_len]))
 		str := partialEvents.String()
@@ -78,14 +76,24 @@ func (ep *EventsParserPQueue) handler(conn net.Conn) {
 			partialEvents.WriteString(batch[len(batch)-1])
 			batch = batch[:len(batch)-1]
 		}
+		if len(batch) == 0 {
+			continue
+		}
+		parsed := make([]*event.Event, 0)
 		for _, e := range batch {
 			ev, err := event.NewEvent(e)
 			if err != nil {
 				log.Printf("ERROR: processing event `%v`: `%v`\n", e, err)
 				continue
 			}
-			ep.eventsQueue.Push(ev)
-			ep.updateLargestEventNumber(ev.Number)
+			parsed = append(parsed, ev)
+		}
+		sort.Slice(parsed, func(i, j int) bool {
+			return parsed[i].Number < parsed[j].Number
+		})
+		ep.updateLargestEventNumber(parsed[len(parsed)-1].Number)
+		for _, p := range parsed {
+			ep.eventsQueue.Push(p)
 		}
 		log.Printf("DEBUG: read %v bytes\n", read_len)
 	}

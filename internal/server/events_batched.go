@@ -19,6 +19,7 @@ type EventsParserBatched struct {
 	readTimeoutMs time.Duration
 	server        ss.SocketServer
 	eventsQueue   chan *event.Event
+	shutdownEvent event.Event
 }
 
 func NewEventsParserBatched(maxBuffSize, maxBatchSize, eventsQueueMaxSize, readTimeoutMs int, servicePort string) *EventsParserBatched {
@@ -28,6 +29,7 @@ func NewEventsParserBatched(maxBuffSize, maxBatchSize, eventsQueueMaxSize, readT
 		readTimeoutMs: time.Duration(readTimeoutMs) * time.Millisecond,
 		server:        ss.NewTCPServer(servicePort),
 		eventsQueue:   make(chan *event.Event, eventsQueueMaxSize),
+		shutdownEvent: event.ShutdownEvent,
 	}
 }
 
@@ -58,6 +60,7 @@ func (ep *EventsParserBatched) handler(conn net.Conn) {
 	maxBuffSize := ep.maxBuffSize
 	maxBatchSize := ep.maxBatchSize
 	readTimeoutMs := ep.readTimeoutMs
+	shutdownEvent := ep.shutdownEvent
 	ep.mx.RUnlock()
 	parsedEventsChan := make(chan *event.Event, maxBatchSize)
 	go func() {
@@ -67,7 +70,7 @@ func (ep *EventsParserBatched) handler(conn net.Conn) {
 			read_len, err := conn.Read(buff)
 			if err != nil {
 				log.Printf("INFO: Events connection closed: %v\n", err)
-				parsedEventsChan <- event.ShutdownEvent
+				parsedEventsChan <- &shutdownEvent
 				return
 			}
 			partialEvents.WriteString(string(buff[:read_len]))

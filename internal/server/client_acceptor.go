@@ -31,12 +31,11 @@ func NewClientAcceptor(maxBuffSizeBytes, eventsQueueMaxSize int, servicePort str
 }
 
 func (ca *ClientAcceptor) GetNextMsg() *follower.Client {
-	select {
-	case client := <-ca.clientsChan:
-		return client
-	default:
+	client, ok := <-ca.clientsChan
+	if !ok {
 		return nil
 	}
+	return client
 }
 
 func (ca *ClientAcceptor) Start() {

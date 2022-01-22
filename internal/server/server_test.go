@@ -4,6 +4,7 @@ import (
 	"github.com/gasparian/follower-maze/internal/event"
 	"github.com/gasparian/follower-maze/internal/follower"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -45,9 +46,9 @@ func TestClientAcceptor(t *testing.T) {
 
 	time.Sleep(timeoutMs)
 
-	cl := ca.GetMsg()
+	cl := ca.GetNextMsg()
 	if cl.ID != 42 {
-		t.Error()
+		t.Errorf("Expected id to be 42, but got: %v", cl.ID)
 	}
 
 	req := &follower.Request{
@@ -95,17 +96,19 @@ func testEventsParser(t *testing.T, port string, ep EventsServer[*event.Event]) 
 
 	time.Sleep(timeoutMs)
 
-	eventRcvd := ep.GetMsg()
+	eventRcvd := ep.GetNextMsg()
 	if !event.Equal(events["PrivateMsg"], eventRcvd) {
-		t.Error()
+		t.Errorf("Expected: %s, but got: %s\n", events["PrivateMsg"].Raw, eventRcvd.Raw)
 	}
 
 	conn.Write([]byte(events["Unfollow"].Raw + "\n"))
 	conn.Write([]byte(events["Follow"].Raw + "\n"))
 
-	eventRcvd = ep.GetMsg()
+	time.Sleep(timeoutMs)
+
+	eventRcvd = ep.GetNextMsg()
 	if !event.Equal(eventRcvd, events["Follow"]) {
-		t.Fatal()
+		t.Fatalf("Expect: %s, got: %s\n", events["Follow"].Raw, eventRcvd.Raw)
 	}
 }
 
@@ -166,29 +169,29 @@ func TestFollowerServer(t *testing.T) {
 
 	time.Sleep(timeoutMs)
 
-	t.Log(">>>>>>>>>>>>>>>", fs.clients)
-	_, ok := fs.clients[42]
-	if !ok {
-		t.Fatal()
-	}
-	_, ok = fs.clients[24]
-	if !ok {
-		t.Fatal()
-	}
-
 	eventsConn, err := net.Dial("tcp", ":1128")
 	if err != nil {
 		t.Fatal(err)
 	}
-	eventsConn.Write([]byte(events["Broadcast"].Raw + "\n"))
-	eventsConn.Write([]byte(events["Follow"].Raw + "\n"))
-	eventsConn.Write([]byte(events["Unfollow"].Raw + "\n"))
-	eventsConn.Write([]byte(events["PrivateMsg"].Raw + "\n"))
+	eventsConn.Write([]byte(
+		events["Broadcast"].Raw + "\n" +
+			events["Follow"].Raw + "\n" +
+			events["Unfollow"].Raw + "\n" +
+			events["PrivateMsg"].Raw + "\n",
+	))
+
+	time.Sleep(timeoutMs)
 
 	buff := make([]byte, 128)
-	_, err = clientConn42.Read(buff)
+	read_len, err := clientConn42.Read(buff)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Log(">>>>>>>>>>>>>>>>>>>>>>>>>>>", string(buff))
+	result := strings.Fields(string(buff[:read_len]))
+	if len(result) == 0 {
+		t.Fatal("Expected to have at least one event back")
+	}
+	if result[0] != events["Follow"].Raw {
+		t.Fatalf("Expected: %s, but got: %s\n", events["Follow"].Raw, result)
+	}
 }

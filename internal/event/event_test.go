@@ -15,11 +15,11 @@ func TestNewEvent(t *testing.T) {
 	}
 	newEvent, _ := NewEvent(msgOrig)
 	if !Equal(parsed, newEvent) {
-		t.Error()
+		t.Errorf("Expected: %v, but got: %v", parsed, newEvent)
 	}
 	msgBad := "666|"
 	_, err := NewEvent(msgBad)
 	if err == nil {
-		t.Error()
+		t.Error("Should not parse event with just a single field")
 	}
 }

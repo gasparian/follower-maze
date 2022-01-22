@@ -62,6 +62,11 @@ func (fs *FollowerServer) removeFollower(clientId, followerId uint64) {
 }
 
 func (fs *FollowerServer) processEvent(e *event.Event) {
+	if e == nil {
+		return
+	}
+	fs.mx.Lock()
+	defer fs.mx.Unlock()
 	if e.MsgType == event.ServerShutdown {
 		fs.cleanState()
 	} else if e.MsgType == event.Broadcast {
@@ -105,6 +110,11 @@ func (fs *FollowerServer) processEvent(e *event.Event) {
 }
 
 func (fs *FollowerServer) registerClient(c *follower.Client) {
+	if c == nil {
+		return
+	}
+	fs.mx.Lock()
+	defer fs.mx.Unlock()
 	fs.clients[c.ID] = c.Chan
 	fs.followers[c.ID] = make(map[uint64]bool)
 }
@@ -160,19 +170,25 @@ func (fs *FollowerServer) isStopped() bool {
 	return false
 }
 
-func (fs *FollowerServer) coordinator() {
+func (fs *FollowerServer) listenClients() {
+	var client *follower.Client
+	for {
+		if fs.isStopped() {
+			return
+		}
+		client = fs.clientServer.GetNextMsg() // NOTE: blocking
+		fs.registerClient(client)
+	}
+}
+
+func (fs *FollowerServer) listenEvents() {
 	var e *event.Event
 	for {
 		if fs.isStopped() {
 			return
 		}
-		client := fs.clientServer.GetNextMsg() // NOTE: non-blocking
-		if client != nil {
-			fs.registerClient(client)
-		}
-		e = fs.eventsServer.GetNextMsg() // NOTE: will block if the queue is empty
+		e = fs.eventsServer.GetNextMsg() // NOTE: blocking
 		fs.processEvent(e)
-		// TODO: while blocking - no new clients could be connected ;(
 	}
 }
 
@@ -188,7 +204,8 @@ func (fs *FollowerServer) Start() {
 	go fs.listenStopSignal()
 	go fs.clientServer.Start()
 	go fs.eventsServer.Start()
-	go fs.coordinator()
+	go fs.listenClients()
+	go fs.listenEvents()
 	select {}
 }
 

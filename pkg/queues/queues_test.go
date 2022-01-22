@@ -53,6 +53,6 @@ func TestPQueueClear(t *testing.T) {
 	wg.Wait()
 	pq.Clear()
 	if pq.Len() > 0 {
-		t.Fatal()
+		t.Fatal("Queue len should be > 0")
 	}
 }

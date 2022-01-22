@@ -57,7 +57,7 @@ func TestTCPServer(t *testing.T) {
 	time.Sleep(timeoutMs * 2)
 	for _, conn := range conns {
 		if err = ConnCheck(conn); err == nil {
-			t.Fatal()
+			t.Fatal("Connection should be closed")
 		}
 	}
 

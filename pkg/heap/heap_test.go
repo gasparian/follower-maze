@@ -13,6 +13,6 @@ func TestHeap(t *testing.T) {
 	}
 	v := h.Pop()
 	if v != 1 {
-		t.Fatal()
+		t.Fatalf("Expected: %v, but got: %v\n", 1, v)
 	}
 }

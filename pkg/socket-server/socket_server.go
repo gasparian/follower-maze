@@ -50,6 +50,7 @@ type SocketServer interface {
 }
 
 type TCPSocketServer struct {
+	mx          sync.RWMutex
 	servicePort string
 	stopSignal  chan bool
 	stoppedFlag int32
@@ -76,6 +77,7 @@ func (ss *TCPSocketServer) listenStopSignal(listener *net.TCPListener) {
 	listener.Close()
 	atomic.StoreInt32(&ss.stoppedFlag, 1)
 	wg := sync.WaitGroup{}
+	ss.mx.RLock()
 	for _, ch := range ss.connsChans {
 		wg.Add(1)
 		go func(ch chan bool) {
@@ -84,7 +86,14 @@ func (ss *TCPSocketServer) listenStopSignal(listener *net.TCPListener) {
 		}(ch)
 	}
 	wg.Wait()
+	ss.mx.RUnlock()
 	ss.stopSignal <- true
+}
+
+func (ss *TCPSocketServer) addConnStopSignal(connStopSignal chan bool) {
+	ss.mx.Lock()
+	ss.connsChans = append(ss.connsChans, connStopSignal)
+	ss.mx.Unlock()
 }
 
 func connListenStopSignal(conn net.Conn, connStopSignal chan bool) {
@@ -117,7 +126,7 @@ func (ss *TCPSocketServer) Start(h func(net.Conn)) {
 			continue
 		}
 		connStopSignal := make(chan bool)
-		ss.connsChans = append(ss.connsChans, connStopSignal)
+		ss.addConnStopSignal(connStopSignal)
 		go func() {
 			defer conn.Close()
 			go connListenStopSignal(conn, connStopSignal)

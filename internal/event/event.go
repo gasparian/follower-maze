@@ -16,7 +16,7 @@ const (
 )
 
 var (
-	ShutdownEvent = &Event{MsgType: ServerShutdown}
+	ShutdownEvent = Event{MsgType: ServerShutdown}
 
 	badEventError = errors.New("Event contains less then 2 fields")
 )
