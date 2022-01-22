@@ -7,17 +7,24 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/gasparian/follower-maze/internal/follower"
 	ss "github.com/gasparian/follower-maze/pkg/socket-server"
 )
+
+type clientConn struct {
+	ID   uint64
+	conn net.Conn
+	ch   chan *follower.Request
+}
 
 type ClientAcceptor struct {
 	mx                 sync.RWMutex
 	maxBuffSizeBytes   int
 	server             ss.SocketServer
 	clientsChan        chan *follower.Client
+	clientsConnsChan   chan *clientConn
+	clientsConns       map[uint64]*clientConn
 	eventsQueueMaxSize int
 }
 
@@ -25,12 +32,14 @@ func NewClientAcceptor(maxBuffSizeBytes, eventsQueueMaxSize int, servicePort str
 	return &ClientAcceptor{
 		maxBuffSizeBytes:   maxBuffSizeBytes,
 		clientsChan:        make(chan *follower.Client),
+		clientsConnsChan:   make(chan *clientConn),
 		server:             ss.NewTCPServer(servicePort),
 		eventsQueueMaxSize: eventsQueueMaxSize,
+		clientsConns:       make(map[uint64]*clientConn),
 	}
 }
 
-func (ca *ClientAcceptor) GetNextMsg() *follower.Client {
+func (ca *ClientAcceptor) GetNextEvent() *follower.Client {
 	client, ok := <-ca.clientsChan
 	if !ok {
 		return nil
@@ -39,6 +48,7 @@ func (ca *ClientAcceptor) GetNextMsg() *follower.Client {
 }
 
 func (ca *ClientAcceptor) Start() {
+	go ca.serveClients()
 	ca.server.Start(ca.handler)
 }
 
@@ -46,24 +56,34 @@ func (ca *ClientAcceptor) Stop() {
 	ca.server.Stop()
 }
 
-// TODO: send events in a single loop instead of separate goroutines
-//       otherwise - need to have some delay)
-func serveClient(conn net.Conn, cl *follower.Client) {
+func (ca *ClientAcceptor) serveClients() {
 	var clientReqBuff bytes.Buffer
 	var clientReq *follower.Request
+	var clientConn *clientConn
 	for {
 		select {
-		case clientReq = <-cl.Chan:
-			clientReqBuff.WriteString(clientReq.Payload)
-			clientReqBuff.WriteRune('\n')
-			_, err := conn.Write(clientReqBuff.Bytes())
-			clientReqBuff.Reset()
-			clientReq.Response <- err
-			if err != nil {
-				return
-			}
+		case clientConn = <-ca.clientsConnsChan:
+			ca.clientsConns[clientConn.ID] = clientConn
 		default:
-			time.Sleep(1 * time.Millisecond)
+			clientsToRemove := make([]uint64, 0)
+			for clientID, clientConn := range ca.clientsConns {
+				select {
+				case clientReq = <-clientConn.ch:
+					clientReqBuff.WriteString(clientReq.Payload)
+					clientReqBuff.WriteRune('\n')
+					_, err := clientConn.conn.Write(clientReqBuff.Bytes())
+					clientReqBuff.Reset()
+					clientReq.Response <- err
+					if err != nil {
+						clientsToRemove = append(clientsToRemove, clientID)
+						clientConn.conn.Close()
+					}
+				default:
+				}
+			}
+			for _, clientID := range clientsToRemove {
+				delete(ca.clientsConns, clientID)
+			}
 		}
 	}
 }
@@ -80,17 +100,22 @@ func (ca *ClientAcceptor) handler(conn net.Conn) {
 		return
 	}
 	req := strings.Fields(string(buff[:read_len]))
-	clientId, err := strconv.ParseUint(req[0], 10, 64)
+	clientID, err := strconv.ParseUint(req[0], 10, 64)
 	if err != nil {
 		log.Printf("ERROR: adding new client: %v\n", err)
+		conn.Close()
 		return
 	}
-	cl := &follower.Client{
-		ID:   clientId,
+	client := &follower.Client{
+		ID:   clientID,
 		Chan: make(chan *follower.Request, eventsQueueMaxSize),
 	}
-	ca.clientsChan <- cl
-	log.Printf("INFO: Client `%v` connected\n", clientId)
+	ca.clientsChan <- client
+	ca.clientsConnsChan <- &clientConn{
+		ID:   client.ID,
+		ch:   client.Chan,
+		conn: conn,
+	}
 
-	serveClient(conn, cl) // NOTE: blocking
+	log.Printf("INFO: Client `%v` connected\n", clientID)
 }

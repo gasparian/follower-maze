@@ -46,7 +46,7 @@ func TestClientAcceptor(t *testing.T) {
 
 	time.Sleep(timeoutMs)
 
-	cl := ca.GetNextMsg()
+	cl := ca.GetNextEvent()
 	if cl.ID != 42 {
 		t.Errorf("Expected id to be 42, but got: %v", cl.ID)
 	}
@@ -96,7 +96,7 @@ func testEventsParser(t *testing.T, port string, ep EventsServer[*event.Event]) 
 
 	time.Sleep(timeoutMs)
 
-	eventRcvd := ep.GetNextMsg()
+	eventRcvd := ep.GetNextEvent()
 	if !event.Equal(events["PrivateMsg"], eventRcvd) {
 		t.Errorf("Expected: %s, but got: %s\n", events["PrivateMsg"].Raw, eventRcvd.Raw)
 	}
@@ -106,7 +106,7 @@ func testEventsParser(t *testing.T, port string, ep EventsServer[*event.Event]) 
 
 	time.Sleep(timeoutMs)
 
-	eventRcvd = ep.GetNextMsg()
+	eventRcvd = ep.GetNextEvent()
 	if !event.Equal(eventRcvd, events["Follow"]) {
 		t.Fatalf("Expect: %s, got: %s\n", events["Follow"].Raw, eventRcvd.Raw)
 	}

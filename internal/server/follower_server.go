@@ -10,7 +10,7 @@ import (
 )
 
 type EventsServer[T any] interface {
-	GetNextMsg() T
+	GetNextEvent() T
 	Start()
 	Stop()
 }
@@ -38,24 +38,24 @@ func NewFollowerServer(
 	return fs
 }
 
-func (fs *FollowerServer) addFollower(clientId, followerId uint64) {
+func (fs *FollowerServer) addFollower(clientID, followerId uint64) {
 	_, ok := fs.clients[followerId]
 	if !ok {
-		// log.Printf("ERROR: adding the follower: client `%v` does not connected\n", clientId)
+		// log.Printf("ERROR: adding the follower: client `%v` does not connected\n", clientID)
 		return
 	}
-	followers, ok := fs.followers[clientId]
+	followers, ok := fs.followers[clientID]
 	if !ok {
 		followers = make(map[uint64]bool)
-		fs.followers[clientId] = followers
+		fs.followers[clientID] = followers
 	}
 	followers[followerId] = true
 }
 
-func (fs *FollowerServer) removeFollower(clientId, followerId uint64) {
-	followers, ok := fs.followers[clientId]
+func (fs *FollowerServer) removeFollower(clientID, followerId uint64) {
+	followers, ok := fs.followers[clientID]
 	if !ok {
-		// log.Printf("ERROR: removing the follower: client `%v` does not connected\n", clientId)
+		// log.Printf("ERROR: removing the follower: client `%v` does not connected\n", clientID)
 		return
 	}
 	delete(followers, followerId)
@@ -75,9 +75,9 @@ func (fs *FollowerServer) processEvent(e *event.Event) {
 		for id := range fs.clients {
 			eventCpy := (*e).Raw
 			wg.Add(1)
-			go func(clientId uint64, eventRaw string) {
+			go func(clientID uint64, eventRaw string) {
 				defer wg.Done()
-				fs.sendEvent(clientId, eventRaw)
+				fs.sendEvent(clientID, eventRaw)
 			}(id, eventCpy)
 		}
 		wg.Wait()
@@ -98,9 +98,9 @@ func (fs *FollowerServer) processEvent(e *event.Event) {
 		for fl := range followers {
 			wg.Add(1)
 			eventCpy := (*e).Raw
-			go func(clientId uint64, eventRaw string) {
+			go func(clientID uint64, eventRaw string) {
 				defer wg.Done()
-				fs.sendEvent(clientId, eventRaw)
+				fs.sendEvent(clientID, eventRaw)
 			}(fl, eventCpy)
 		}
 		wg.Wait()
@@ -119,17 +119,23 @@ func (fs *FollowerServer) registerClient(c *follower.Client) {
 	fs.followers[c.ID] = make(map[uint64]bool)
 }
 
-func (fs *FollowerServer) dropClient(clientId uint64) {
-	delete(fs.clients, clientId)
+func (fs *FollowerServer) dropClient(clientID uint64) {
+	fs.mx.Lock()
+	defer fs.mx.Unlock()
+	delete(fs.clients, clientID)
 }
 
-func (fs *FollowerServer) dropFollowers(clientId uint64) {
-	delete(fs.followers, clientId)
+func (fs *FollowerServer) dropFollowers(clientID uint64) {
+	fs.mx.Lock()
+	defer fs.mx.Unlock()
+	delete(fs.followers, clientID)
 }
 
 func (fs *FollowerServer) dropClientsAll() {
-	for id := range fs.clients {
-		fs.dropClient(id)
+	fs.mx.Lock()
+	defer fs.mx.Unlock()
+	for clientID := range fs.clients {
+		delete(fs.followers, clientID)
 	}
 }
 
@@ -144,10 +150,10 @@ func (fs *FollowerServer) cleanState() {
 	fs.dropFollowersAll()
 }
 
-func (fs *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
-	reqChan, ok := fs.clients[clientId]
+func (fs *FollowerServer) sendEvent(clientID uint64, eventRaw string) {
+	reqChan, ok := fs.clients[clientID]
 	if !ok {
-		// log.Printf("ERROR: trying to send an event: client `%v` does not connected\n", clientId)
+		// log.Printf("ERROR: trying to send an event: client `%v` does not connected\n", clientID)
 		return
 	}
 	req := &follower.Request{
@@ -157,8 +163,8 @@ func (fs *FollowerServer) sendEvent(clientId uint64, eventRaw string) {
 	reqChan <- req
 	err := <-req.Response
 	if err != nil {
-		fs.dropClient(clientId)
-		log.Printf("INFO: Dropping client `%v` with error: %v\n", clientId, err)
+		fs.dropClient(clientID)
+		log.Printf("INFO: Dropping client `%v` with error: %v\n", clientID, err)
 	}
 }
 
@@ -176,7 +182,7 @@ func (fs *FollowerServer) listenClients() {
 		if fs.isStopped() {
 			return
 		}
-		client = fs.clientServer.GetNextMsg() // NOTE: blocking
+		client = fs.clientServer.GetNextEvent() // NOTE: blocking
 		fs.registerClient(client)
 	}
 }
@@ -187,7 +193,7 @@ func (fs *FollowerServer) listenEvents() {
 		if fs.isStopped() {
 			return
 		}
-		e = fs.eventsServer.GetNextMsg() // NOTE: blocking
+		e = fs.eventsServer.GetNextEvent() // NOTE: blocking
 		fs.processEvent(e)
 	}
 }

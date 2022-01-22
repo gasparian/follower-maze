@@ -128,7 +128,8 @@ func (ss *TCPSocketServer) Start(h func(net.Conn)) {
 		connStopSignal := make(chan bool)
 		ss.addConnStopSignal(connStopSignal)
 		go func() {
-			defer conn.Close()
+			// defer conn.Close() // NOTE: this should be commented for now -->
+			//                             close connection inside the handler function
 			go connListenStopSignal(conn, connStopSignal)
 			h(conn)
 		}()
