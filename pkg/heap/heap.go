@@ -2,22 +2,27 @@ package heap
 
 // Impl. source: https://gist.github.com/nwillc/554847806891a41e7bd32041308dfb40#file-go_generics_heap-go
 
+// Heap holds generic heap implementation
 type Heap[T any] struct {
 	data []T
 	comp func(a, b T) bool
 }
 
+// NewHeap creates new instance of Heap, by comparator
 func NewHeap[T any](comp func(a, b T) bool) *Heap[T] {
 	return &Heap[T]{comp: comp}
 }
 
+// Len returns size of Heap
 func (h *Heap[T]) Len() int { return len(h.data) }
 
+// Push adds new element to Heap
 func (h *Heap[T]) Push(v T) {
 	h.data = append(h.data, v)
 	h.up(h.Len() - 1)
 }
 
+// Pop removes and returns top element from Heap
 func (h *Heap[T]) Pop() T {
 	n := h.Len() - 1
 	if n > 0 {

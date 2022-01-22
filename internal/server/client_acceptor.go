@@ -19,6 +19,7 @@ type clientConn struct {
 	ch   chan *follower.Request
 }
 
+// ClientAcceptor holds logic for working with client connections
 type ClientAcceptor struct {
 	mx                 sync.RWMutex
 	maxBuffSizeBytes   int
@@ -29,6 +30,7 @@ type ClientAcceptor struct {
 	eventsQueueMaxSize int
 }
 
+// NewClientAcceptor creates ClientAcceptor
 func NewClientAcceptor(maxBuffSizeBytes, eventsQueueMaxSize int, servicePort string) *ClientAcceptor {
 	return &ClientAcceptor{
 		maxBuffSizeBytes:   maxBuffSizeBytes,
@@ -40,6 +42,7 @@ func NewClientAcceptor(maxBuffSizeBytes, eventsQueueMaxSize int, servicePort str
 	}
 }
 
+// GetNextEvent returns parsed event recieved from client
 func (ca *ClientAcceptor) GetNextEvent() *follower.Client {
 	client, ok := <-ca.clientsChan
 	if !ok {
@@ -48,11 +51,13 @@ func (ca *ClientAcceptor) GetNextEvent() *follower.Client {
 	return client
 }
 
+// Start starts server
 func (ca *ClientAcceptor) Start() {
 	go ca.serveClients()
 	ca.server.Start(ca.handler)
 }
 
+// Stop stops server
 func (ca *ClientAcceptor) Stop() {
 	ca.server.Stop()
 }

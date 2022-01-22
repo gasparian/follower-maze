@@ -6,6 +6,7 @@ import (
 	"github.com/gasparian/follower-maze/pkg/heap"
 )
 
+// BlockingPQueue holds logic for blocking priority queue based on heap
 type BlockingPQueue[T any] struct {
 	mx       *sync.RWMutex
 	heap     *heap.Heap[T]
@@ -15,6 +16,7 @@ type BlockingPQueue[T any] struct {
 	notFull  *sync.Cond
 }
 
+// NewPQueue creates new instance of BlockingPQueue
 func NewPQueue[T any](comp func(a, b T) bool, maxSize uint64) *BlockingPQueue[T] {
 	mx := &sync.RWMutex{}
 	return &BlockingPQueue[T]{
@@ -26,6 +28,7 @@ func NewPQueue[T any](comp func(a, b T) bool, maxSize uint64) *BlockingPQueue[T]
 	}
 }
 
+// Push adds new element to the queue, will block if the queue is full
 func (p *BlockingPQueue[T]) Push(v T) {
 	p.mx.Lock()
 	defer p.mx.Unlock()
@@ -37,6 +40,7 @@ func (p *BlockingPQueue[T]) Push(v T) {
 	p.notEmpty.Signal()
 }
 
+// Pop removes and returns "top" element of queue, blocks if queue is empty
 func (p *BlockingPQueue[T]) Pop() T {
 	p.mx.Lock()
 	defer p.mx.Unlock()
@@ -49,12 +53,14 @@ func (p *BlockingPQueue[T]) Pop() T {
 	return val
 }
 
+// Len returns size of queue
 func (p *BlockingPQueue[T]) Len() int {
 	p.mx.RLock()
 	defer p.mx.RUnlock()
 	return p.heap.Len()
 }
 
+// Clear removes all elements from queue
 func (p *BlockingPQueue[T]) Clear() {
 	p.mx.Lock()
 	defer p.mx.Unlock()

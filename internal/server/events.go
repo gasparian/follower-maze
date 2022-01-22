@@ -13,11 +13,13 @@ import (
 	ss "github.com/gasparian/follower-maze/pkg/socket-server"
 )
 
+// StringStreamParser holds logic for parsing string stream
 type StringStreamParser struct {
 	partialEvents strings.Builder
 	Delim         byte
 }
 
+// Parse converts byte-array to slice of strings
 func (sp *StringStreamParser) Parse(buff []byte) []string {
 	sp.partialEvents.WriteString(string(buff))
 	str := sp.partialEvents.String()
@@ -30,6 +32,8 @@ func (sp *StringStreamParser) Parse(buff []byte) []string {
 	return batch
 }
 
+// EventsParserPQueue holds logic for working with events got from event source server
+// based on priority queue, to keep events in sorted order
 type EventsParserPQueue struct {
 	mx                 sync.RWMutex
 	maxBuffSize        int
@@ -39,6 +43,7 @@ type EventsParserPQueue struct {
 	shutdownEvent      event.Event
 }
 
+// NewEventsParserPQueue creates new instance of EventsParserPQueue
 func NewEventsParserPQueue(maxBuffSize, eventsQueueMaxSize int, servicePort string) *EventsParserPQueue {
 	return &EventsParserPQueue{
 		maxBuffSize: maxBuffSize,
@@ -51,20 +56,24 @@ func NewEventsParserPQueue(maxBuffSize, eventsQueueMaxSize int, servicePort stri
 	}
 }
 
+// GetMaxBuffSize thread safe method to get maxBuffSize param
 func (ep *EventsParserPQueue) GetMaxBuffSize() int {
 	ep.mx.RLock()
 	defer ep.mx.RUnlock()
 	return ep.maxBuffSize
 }
 
+// GetNextEvent returns next parsed event got from event source
 func (ep *EventsParserPQueue) GetNextEvent() *event.Event {
 	return ep.eventsQueue.Pop()
 }
 
+// Start starts server
 func (ep *EventsParserPQueue) Start() {
 	ep.server.Start(ep.handler)
 }
 
+// Stop stops server
 func (ep *EventsParserPQueue) Stop() {
 	ep.server.Stop()
 }
@@ -111,6 +120,8 @@ func (ep *EventsParserPQueue) handler(conn net.Conn) {
 	}
 }
 
+// EventsParserBatched holds logic for parsing and distributing
+// events from event source, based on go channel
 type EventsParserBatched struct {
 	mx            sync.RWMutex
 	maxBuffSize   int
@@ -121,6 +132,7 @@ type EventsParserBatched struct {
 	shutdownEvent event.Event
 }
 
+// NewEventsParserBatched creates new instance of EventsParserBatched
 func NewEventsParserBatched(maxBuffSize, maxBatchSize, eventsQueueMaxSize, readTimeoutMs int, servicePort string) *EventsParserBatched {
 	return &EventsParserBatched{
 		maxBuffSize:   maxBuffSize,
@@ -132,14 +144,17 @@ func NewEventsParserBatched(maxBuffSize, maxBatchSize, eventsQueueMaxSize, readT
 	}
 }
 
+// GetNextEvent returns next parsed event got from event source
 func (ep *EventsParserBatched) GetNextEvent() *event.Event {
 	return <-ep.eventsQueue
 }
 
+// Start starts server
 func (ep *EventsParserBatched) Start() {
 	ep.server.Start(ep.handler)
 }
 
+// Stop stops server
 func (ep *EventsParserBatched) Stop() {
 	ep.server.Stop()
 }

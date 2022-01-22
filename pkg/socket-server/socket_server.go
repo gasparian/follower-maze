@@ -18,6 +18,7 @@ func checkError(err error) {
 	}
 }
 
+// ConnCheck returns error if the passed connection doesn't work
 func ConnCheck(conn net.Conn) error {
 	var sysErr error = nil
 	rc, err := conn.(syscall.Conn).SyscallConn()
@@ -44,11 +45,13 @@ func ConnCheck(conn net.Conn) error {
 	return sysErr
 }
 
+// SocketServer describes logic for SocketServer
 type SocketServer interface {
 	Start(func(net.Conn))
 	Stop()
 }
 
+// TCPSocketServer holds logic for running TCP-based sockets
 type TCPSocketServer struct {
 	mx          sync.RWMutex
 	servicePort string
@@ -57,6 +60,7 @@ type TCPSocketServer struct {
 	connsChans  []chan bool
 }
 
+// NewTCPServer creates new instance of TCPSocketServer
 func NewTCPServer(servicePort string) *TCPSocketServer {
 	return &TCPSocketServer{
 		stopSignal:  make(chan bool),
@@ -108,6 +112,8 @@ func connListenStopSignal(conn net.Conn, connStopSignal chan bool) {
 	}
 }
 
+// Starts runs TCP server: accepts clients and passes connection to the
+// provided handler function
 func (ss *TCPSocketServer) Start(h func(net.Conn)) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", ss.servicePort)
 	checkError(err)
@@ -136,6 +142,7 @@ func (ss *TCPSocketServer) Start(h func(net.Conn)) {
 	}
 }
 
+// Stops shuts down socket server
 func (ss *TCPSocketServer) Stop() {
 	if !ss.isStopped() {
 		ss.stopSignal <- true

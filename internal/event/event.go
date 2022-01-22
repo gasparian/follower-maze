@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// Types of messages to process
 const (
 	Follow         = 70
 	Unfollow       = 85
@@ -21,6 +22,7 @@ var (
 	badEventError = errors.New("Event contains less then 2 fields")
 )
 
+// Event holds data that comes from the event source
 type Event struct {
 	Raw        string
 	Number     uint64
@@ -29,6 +31,7 @@ type Event struct {
 	ToUserID   uint64
 }
 
+// Equal compares two Events
 func Equal(a, b *Event) bool {
 	if a.Raw == b.Raw &&
 		a.Number == b.Number &&
@@ -40,6 +43,7 @@ func Equal(a, b *Event) bool {
 	return false
 }
 
+// NewEvent creates Event by parsing input string
 func NewEvent(raw string) (*Event, error) {
 	var fromUserID, toUserID uint64
 	var parsed []string = strings.Split(raw, "|")

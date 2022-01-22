@@ -9,12 +9,20 @@ import (
 	"github.com/gasparian/follower-maze/internal/follower"
 )
 
+// EventsServer describes interface of any events server
 type EventsServer[T any] interface {
+	// Get next event from the internal queue of parsed events
 	GetNextEvent() T
+	// Starts server
 	Start()
+	// Stops server
 	Stop()
 }
 
+// FollowerServer holds logic for running follower server, which
+// consists of events-parsing server which listens to stream of events
+// from events source, and client-acceptor server which accepts clients
+// connections and transmits events to them
 type FollowerServer struct {
 	mx           sync.RWMutex
 	clientServer EventsServer[*follower.Client]
@@ -25,6 +33,7 @@ type FollowerServer struct {
 	stoppedFlag  int32
 }
 
+// NewFollowerServer creates new instance of FollowerServer
 func NewFollowerServer(
 	clientServer EventsServer[*follower.Client],
 	eventsServer EventsServer[*event.Event],
@@ -206,6 +215,7 @@ func (fs *FollowerServer) listenStopSignal() {
 	fs.stopSignal <- true
 }
 
+// Starts FollowerServer, by starting listening to events source and clients
 func (fs *FollowerServer) Start() {
 	go fs.listenStopSignal()
 	go fs.clientServer.Start()
@@ -215,6 +225,7 @@ func (fs *FollowerServer) Start() {
 	select {}
 }
 
+// Stop shuts down FollowerServer
 func (fs *FollowerServer) Stop() {
 	if !fs.isStopped() {
 		fs.stopSignal <- true
