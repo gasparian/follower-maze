@@ -30,7 +30,8 @@ help:
 	echo
 	echo '  Targets:'
 	echo '    build          generate binary'
-	echo '    build          generate statically linked binary'
+	echo '    build-static   generate statically linked binary'
+	echo '    run            run compiled application'
 	echo '    simulate       run events and clients simulator'
 	echo '    simulate-test  run simulator configured just to test app functionality'
 	echo '    test           run tests'

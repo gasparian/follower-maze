@@ -32,4 +32,5 @@ LOG_LEVEL=debug make run
 ```  
 
 ### TODO
+ - add tests coverage results and widget with tests status
  - think of how to make solution more scalable to support more concurrent users
