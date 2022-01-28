@@ -1,7 +1,6 @@
 package server
 
 import (
-	"log"
 	"net"
 	"sort"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"github.com/gasparian/follower-maze/internal/event"
 	q "github.com/gasparian/follower-maze/pkg/queues"
 	ss "github.com/gasparian/follower-maze/pkg/socket-server"
+	"github.com/golang/glog"
 )
 
 // StringStreamParser holds logic for parsing string stream
@@ -91,7 +91,7 @@ func (ep *EventsParserPQueue) handler(conn net.Conn) {
 	for {
 		read_len, err := conn.Read(buff)
 		if err != nil {
-			log.Printf("INFO: Events connection closed: %v\n", err)
+			glog.V(0).Infof("INFO: Events connection closed: %v\n", err)
 			ep.shutdownEvent.Number = ep.largestEventNumber
 			ep.eventsQueue.Push(&ep.shutdownEvent)
 			return
@@ -104,7 +104,7 @@ func (ep *EventsParserPQueue) handler(conn net.Conn) {
 		for _, e := range batch {
 			ev, err := event.NewEvent(e)
 			if err != nil {
-				log.Printf("ERROR: processing event `%v`: `%v`\n", e, err)
+				glog.V(0).Infof("ERROR: processing event `%v`: `%v`\n", e, err)
 				continue
 			}
 			parsed = append(parsed, ev)
@@ -116,7 +116,7 @@ func (ep *EventsParserPQueue) handler(conn net.Conn) {
 		for _, p := range parsed {
 			ep.eventsQueue.Push(p)
 		}
-		// log.Printf("DEBUG: read %v bytes\n", read_len)
+		glog.V(1).Infof("DEBUG: read %v bytes\n", read_len)
 	}
 }
 
@@ -185,16 +185,16 @@ func (ep *EventsParserBatched) handler(conn net.Conn) {
 		for {
 			read_len, err := conn.Read(buff)
 			if err != nil {
-				log.Printf("INFO: Events connection closed: %v\n", err)
+				glog.V(0).Infof("INFO: Events connection closed: %v\n", err)
 				parsedEventsChan <- &shutdownEvent
 				return
 			}
 			batch := streamParser.Parse(buff[:read_len])
-			// log.Printf("DEBUG: read %v bytes; parsed %v events\n", read_len, len(batch))
+			glog.V(1).Infof("DEBUG: read %v bytes; parsed %v events\n", read_len, len(batch))
 			for _, ev := range batch {
 				parsedEvent, err := event.NewEvent(ev)
 				if err != nil {
-					log.Printf("ERROR: processing event `%v`: `%v`\n", ev, err)
+					glog.V(0).Infof("ERROR: processing event `%v`: `%v`\n", ev, err)
 					continue
 				}
 				parsedEventsChan <- parsedEvent

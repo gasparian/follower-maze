@@ -2,21 +2,12 @@ package socket_server
 
 import (
 	"io"
-	"log"
 	"net"
-	"os"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 )
-
-func checkError(err error) {
-	if err != nil {
-		log.Printf("ERROR: Fatal error: %s", err.Error())
-		os.Exit(1)
-	}
-}
 
 // ConnCheck returns error if the passed connection doesn't work
 func ConnCheck(conn net.Conn) error {
@@ -47,7 +38,7 @@ func ConnCheck(conn net.Conn) error {
 
 // SocketServer describes logic for SocketServer
 type SocketServer interface {
-	Start(func(net.Conn))
+	Start(func(net.Conn)) error
 	Stop()
 }
 
@@ -113,29 +104,29 @@ func connListenStopSignal(conn net.Conn, connStopSignal chan bool) {
 }
 
 // Starts runs TCP server: accepts clients and passes connection to the
-// provided handler function
-func (ss *TCPSocketServer) Start(h func(net.Conn)) {
+// provided handler function. Right now, handler function should
+// manage the connection lifecycle (like closing it)
+func (ss *TCPSocketServer) Start(h func(net.Conn)) error {
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", ss.servicePort)
-	checkError(err)
+	if err != nil {
+		return err
+	}
 	listener, err := net.ListenTCP("tcp", tcpAddr)
+	if err != nil {
+		return err
+	}
 	go ss.listenStopSignal(listener)
-	checkError(err)
-	log.Printf("INFO: Starting tcp server %s\n", tcpAddr)
 	for {
 		conn, err := listener.Accept()
 		if ss.isStopped() {
-			log.Println("SOCKET SERVER: STOPPING")
-			return
+			return nil
 		}
 		if err != nil {
-			log.Println("SOCKET SERVER:", err)
 			continue
 		}
 		connStopSignal := make(chan bool)
 		ss.addConnStopSignal(connStopSignal)
 		go func() {
-			// defer conn.Close() // NOTE: this should be commented for now -->
-			//                             close connection inside the handler function
 			go connListenStopSignal(conn, connStopSignal)
 			h(conn)
 		}()

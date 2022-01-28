@@ -2,12 +2,12 @@ package main
 
 import (
 	"flag"
-	"log"
 	"runtime"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gasparian/follower-maze/internal/event"
 	"github.com/gasparian/follower-maze/internal/server"
+	"github.com/golang/glog"
 )
 
 var (
@@ -24,7 +24,7 @@ func main() {
 	var config server.FollowerServerConfig
 	_, err := toml.DecodeFile(configPath, &config)
 	if err != nil {
-		log.Fatal(err)
+		glog.Fatal(err)
 	}
 
 	runtime.GOMAXPROCS(config.Runtime.MaxProcs)
@@ -53,5 +53,6 @@ func main() {
 	)
 
 	srv := server.NewFollowerServer(clientServer, eventsServer)
+	glog.Infof("INFO: Starting socket servers: Events %s, Client %s\n", config.Events.Port, config.Client.Port)
 	srv.Start()
 }

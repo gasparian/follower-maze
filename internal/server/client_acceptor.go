@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	// "log"
 	"net"
 	"strconv"
 	"strings"
@@ -62,6 +61,7 @@ func (ca *ClientAcceptor) Stop() {
 	ca.server.Stop()
 }
 
+// serveClients
 func (ca *ClientAcceptor) serveClients() {
 	var clientReqBuff bytes.Buffer
 	var clientReq *follower.Request
@@ -102,15 +102,13 @@ func (ca *ClientAcceptor) handler(conn net.Conn) {
 	buff := make([]byte, maxBuffSizeBytes)
 	read_len, err := conn.Read(buff)
 	if err != nil {
-		// log.Printf("INFO: Client connection closed: %v\n", err)
-		glog.Infof("INFO: Client connection closed: %v\n", err)
+		glog.V(0).Infof("INFO: Client connection closed: %v\n", err)
 		return
 	}
 	req := strings.Fields(string(buff[:read_len]))
 	clientID, err := strconv.ParseUint(req[0], 10, 64)
 	if err != nil {
-		// log.Printf("ERROR: adding new client: %v\n", err)
-		glog.Errorf("ERROR: adding new client: %v\n", err)
+		glog.V(0).Infof("ERROR: Can't add a new client: %v\n", err)
 		conn.Close()
 		return
 	}
@@ -125,6 +123,5 @@ func (ca *ClientAcceptor) handler(conn net.Conn) {
 		conn: conn,
 	}
 
-	// log.Printf("INFO: Client `%v` connected\n", clientID)
-	glog.Infof("INFO: Client `%v` connected\n", clientID)
+	glog.V(0).Infof("INFO: Client `%v` connected\n", clientID)
 }

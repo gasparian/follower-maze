@@ -2,12 +2,24 @@ GO=go1.18beta1
 TEST=${GO} test -v -cover -race -count=1 -timeout 30s $(1)
 DEFAULT_GOAL := help
 
+ifndef LOG_LEVEL
+	export LOG_LEVEL=info
+endif
+
+ifeq "${LOG_LEVEL}" "info"
+	V=0
+endif
+ifeq "${LOG_LEVEL}" "debug"
+	V=1
+endif
+
 .SILENT:
 .PHONY: \
 	help \
 	install-hooks \
 	build \
 	build-static \
+	run \
 	run-simulator \
 	test
 
@@ -35,7 +47,11 @@ build-static:
 		-tags osusergo,netgo \
 		-v -a ./cmd/server
 
+run:
+	./server -logtostderr -v=${V}
+
 simulate:
+	concurrencyLevel=1000 \
 	./simulator/followermaze.sh
 
 simulate-test:

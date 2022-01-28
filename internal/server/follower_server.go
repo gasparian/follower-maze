@@ -1,12 +1,12 @@
 package server
 
 import (
-	"log"
 	"sync"
 	"sync/atomic"
 
 	"github.com/gasparian/follower-maze/internal/event"
 	"github.com/gasparian/follower-maze/internal/follower"
+	"github.com/golang/glog"
 )
 
 // EventsServer describes interface of any events server
@@ -50,7 +50,7 @@ func NewFollowerServer(
 func (fs *FollowerServer) addFollower(clientID, followerId uint64) {
 	_, ok := fs.clients[followerId]
 	if !ok {
-		// log.Printf("ERROR: adding the follower: client `%v` does not connected\n", clientID)
+		glog.V(1).Infof("DEBUG: adding the follower: client `%v` does not connected\n", clientID)
 		return
 	}
 	followers, ok := fs.followers[clientID]
@@ -64,7 +64,7 @@ func (fs *FollowerServer) addFollower(clientID, followerId uint64) {
 func (fs *FollowerServer) removeFollower(clientID, followerId uint64) {
 	followers, ok := fs.followers[clientID]
 	if !ok {
-		// log.Printf("ERROR: removing the follower: client `%v` does not connected\n", clientID)
+		glog.V(1).Infof("DEBUG: removing the follower: client `%v` does not connected\n", clientID)
 		return
 	}
 	delete(followers, followerId)
@@ -79,40 +79,26 @@ func (fs *FollowerServer) processEvent(e *event.Event) {
 	if e.MsgType == event.ServerShutdown {
 		fs.cleanState()
 	} else if e.MsgType == event.Broadcast {
-		// log.Println(">>>> FLAG; BROADCAST", event.Number)
-		wg := &sync.WaitGroup{}
-		for id := range fs.clients {
-			eventCpy := (*e).Raw
-			wg.Add(1)
-			go func(clientID uint64, eventRaw string) {
-				defer wg.Done()
-				fs.sendEvent(clientID, eventRaw)
-			}(id, eventCpy)
+		glog.V(1).Infoln("DEBUG: BROADCAST", e.Number)
+		for clientID := range fs.clients {
+			fs.sendEvent(clientID, e.Raw)
 		}
-		wg.Wait()
 	} else if e.MsgType == event.Follow && e.FromUserID > 0 && e.ToUserID > 0 {
 		fs.addFollower(e.ToUserID, e.FromUserID)
 		fs.sendEvent(e.ToUserID, e.Raw)
-		// log.Println("DEBUG: FOLLOW: ", e.Number, e.ToUserID, e.FromUserID)
+		glog.V(1).Infoln("DEBUG: FOLLOW: ", e.Number, e.ToUserID, e.FromUserID)
 	} else if e.MsgType == event.PrivateMsg && e.FromUserID > 0 && e.ToUserID > 0 {
 		fs.sendEvent(e.ToUserID, e.Raw)
 	} else if e.MsgType == event.StatusUpdate && e.FromUserID > 0 {
 		followers, ok := fs.followers[e.FromUserID]
-		// log.Println("DEBUG: STATUS UPDATE: ", e.Number, e.FromUserID, followers)
+		glog.V(1).Infoln("DEBUG: STATUS UPDATE: ", e.Number, e.FromUserID, followers)
 		if !ok {
-			// log.Printf("ERROR: getting the followers: client `%v` does not connected\n", e.FromUserID)
+			glog.V(1).Infof("DEBUG: getting the followers: client `%v` does not connected\n", e.FromUserID)
 			return
 		}
-		wg := &sync.WaitGroup{}
-		for fl := range followers {
-			wg.Add(1)
-			eventCpy := (*e).Raw
-			go func(clientID uint64, eventRaw string) {
-				defer wg.Done()
-				fs.sendEvent(clientID, eventRaw)
-			}(fl, eventCpy)
+		for clientID := range followers {
+			fs.sendEvent(clientID, e.Raw)
 		}
-		wg.Wait()
 	} else if e.MsgType == event.Unfollow && e.FromUserID > 0 && e.ToUserID > 0 {
 		fs.removeFollower(e.ToUserID, e.FromUserID)
 	}
@@ -162,7 +148,7 @@ func (fs *FollowerServer) cleanState() {
 func (fs *FollowerServer) sendEvent(clientID uint64, eventRaw string) {
 	reqChan, ok := fs.clients[clientID]
 	if !ok {
-		// log.Printf("ERROR: trying to send an event: client `%v` does not connected\n", clientID)
+		glog.V(1).Infof("DEBUG: trying to send an event: client `%v` does not connected\n", clientID)
 		return
 	}
 	req := &follower.Request{
@@ -173,7 +159,7 @@ func (fs *FollowerServer) sendEvent(clientID uint64, eventRaw string) {
 	err := <-req.Response
 	if err != nil {
 		fs.dropClient(clientID)
-		log.Printf("INFO: Dropping client `%v` with error: %v\n", clientID, err)
+		glog.V(0).Infof("WARNING: Dropping client `%v` with error: %v\n", clientID, err)
 	}
 }
 

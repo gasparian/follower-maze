@@ -1,5 +1,5 @@
 [runtime]
-max_procs = 2
+max_procs = 4
 
 [events]
 port = ":9090"
