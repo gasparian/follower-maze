@@ -66,4 +66,5 @@ simulate-test:
 
 .PHONY: test
 test:
-	$(call TEST,./...)
+	${GO} test -v -coverpkg=all -race -count=1 -timeout 30s ./...
+
