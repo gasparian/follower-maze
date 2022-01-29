@@ -1,3 +1,5 @@
+![tests](https://github.com/gasparian/follower-maze/actions/workflows/test.yml/badge.svg?branch=main)
+
 # Follower Maze  
 
 This is a solution for soundcloud backend developers challenge. Check out instructions in `/simulator` folder.  

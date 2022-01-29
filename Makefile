@@ -1,4 +1,9 @@
+GO_BETA_CHECK=$(shell go1.18beta1 version 2>/dev/null)
 GO=go1.18beta1
+ifeq (${GO_BETA_CHECK},)
+	GO=go
+endif
+
 TEST=${GO} test -v -cover -race -count=1 -timeout 30s $(1)
 DEFAULT_GOAL := help
 
@@ -67,4 +72,3 @@ simulate-test:
 .PHONY: test
 test:
 	${GO} test -v -coverpkg=all -race -count=1 -timeout 30s ./...
-
