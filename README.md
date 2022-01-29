@@ -32,7 +32,3 @@ In order to see debug logs, you need pass env variable while running a server:
 ```
 LOG_LEVEL=debug make run
 ```  
-
-### TODO
- - add tests coverage results and widget with tests status
- - think of how to make solution more scalable to support more concurrent users
