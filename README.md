@@ -3,12 +3,23 @@
 # Follower Maze  
 
 This is a solution for soundcloud backend developers challenge. Check out instructions in `/simulator` folder.  
-In short - the one should develop socket server that distributes events from the event source to clients.  
+In short - the one should develop socket server that distributes events from the event source to clients in real time.  
 
 My current solution processes 10kk events (simulator's default) in 400 sec., which translates to the **~25k** RPS on average.  
-If I configure a simulator to spawn 10x more concurrent users (100 --> 1000), RPS drops respectively to **~2.5k**.  
-Need to come up with solution to that problem.  
-Check comments across the code for more info.  
+If simulator configured to spawn 10x more concurrent users (100 --> 1000), RPS drops ~10x times respectively to **~2.5k**.  
+
+My solution is based on creating two separate socket servers:  
+ - for accepting clients connections;  
+ - for working with a single event source connection;  
+
+Those server are merged under the `FollowerServer` structure, which handles all the communication between them.  
+After accepting new client connection, client server creates channel associated with that new client, puts this channel to the queue which `FollowerServer` listens, and starts listen for events from that channel. And when the event occurs - it writes this event to this client's socket.  
+After `FollowerServer` "sees" new client - it "registers" it by adding new client to special map, where client channels and followers are being stored.  
+Events server just listens to the incoming events, parses them and puts in the priority queue, based on event id.  
+`FollowerServer` listerns to this events queue and, depending on event recipients, puts event to the needed clients channels (which it gets from the client server, initially).  
+All these servers and listeners running in separate goroutines.  
+
+Check the code for more info. You should start "unraveling" from the `follower_server.go`.  
 
 ### How to run  
 

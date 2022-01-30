@@ -56,7 +56,7 @@ run:
 	./server -logtostderr -v=${V}
 
 simulate:
-	concurrencyLevel=1000 \
+	concurrencyLevel=100 \
 	./simulator/followermaze.sh
 
 simulate-test:
