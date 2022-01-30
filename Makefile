@@ -4,7 +4,6 @@ ifeq (${GO_BETA_CHECK},)
 	GO=go
 endif
 
-TEST=${GO} test -v -cover -race -count=1 -timeout 30s $(1)
 DEFAULT_GOAL := help
 
 ifndef LOG_LEVEL
@@ -71,4 +70,4 @@ simulate-test:
 
 .PHONY: test
 test:
-	${GO} test -v -coverpkg=all -race -count=1 -timeout 30s ./...
+	${GO} test -v -cover -race -count=1 -timeout 30s ./...

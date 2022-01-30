@@ -70,6 +70,8 @@ func (fs *FollowerServer) removeFollower(clientID, followerId uint64) {
 	delete(followers, followerId)
 }
 
+// processEvent sends event to the clients channels
+// depending on event type
 func (fs *FollowerServer) processEvent(e *event.Event) {
 	if e == nil {
 		return
@@ -80,6 +82,7 @@ func (fs *FollowerServer) processEvent(e *event.Event) {
 		fs.cleanState()
 	} else if e.MsgType == event.Broadcast {
 		glog.V(1).Infoln("DEBUG: BROADCAST", e.Number)
+		// TODO: add worker pool here
 		for clientID := range fs.clients {
 			fs.sendEvent(clientID, e.Raw)
 		}
@@ -96,6 +99,7 @@ func (fs *FollowerServer) processEvent(e *event.Event) {
 			glog.V(1).Infof("DEBUG: getting the followers: client `%v` does not connected\n", e.FromUserID)
 			return
 		}
+		// TODO: add worker pool here
 		for clientID := range followers {
 			fs.sendEvent(clientID, e.Raw)
 		}

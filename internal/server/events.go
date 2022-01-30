@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/gasparian/follower-maze/internal/event"
 	q "github.com/gasparian/follower-maze/pkg/queues"
@@ -117,111 +116,5 @@ func (ep *EventsParserPQueue) handler(conn net.Conn) {
 			ep.eventsQueue.Push(p)
 		}
 		glog.V(1).Infof("DEBUG: read %v bytes\n", read_len)
-	}
-}
-
-// EventsParserBatched holds logic for parsing and distributing
-// events from event source, based on go channel
-type EventsParserBatched struct {
-	mx            sync.RWMutex
-	maxBuffSize   int
-	maxBatchSize  int
-	readTimeoutMs time.Duration
-	server        ss.SocketServer
-	eventsQueue   chan *event.Event
-	shutdownEvent event.Event
-}
-
-// NewEventsParserBatched creates new instance of EventsParserBatched
-func NewEventsParserBatched(maxBuffSize, maxBatchSize, eventsQueueMaxSize, readTimeoutMs int, servicePort string) *EventsParserBatched {
-	return &EventsParserBatched{
-		maxBuffSize:   maxBuffSize,
-		maxBatchSize:  maxBatchSize,
-		readTimeoutMs: time.Duration(readTimeoutMs) * time.Millisecond,
-		server:        ss.NewTCPServer(servicePort),
-		eventsQueue:   make(chan *event.Event, eventsQueueMaxSize),
-		shutdownEvent: event.ShutdownEvent,
-	}
-}
-
-// GetNextEvent returns next parsed event got from event source
-func (ep *EventsParserBatched) GetNextEvent() *event.Event {
-	return <-ep.eventsQueue
-}
-
-// Start starts server
-func (ep *EventsParserBatched) Start() {
-	ep.server.Start(ep.handler)
-}
-
-// Stop stops server
-func (ep *EventsParserBatched) Stop() {
-	ep.server.Stop()
-}
-
-func (ep *EventsParserBatched) sortAndSend(batchParsed []*event.Event) []*event.Event {
-	sort.Slice(batchParsed, func(i, j int) bool {
-		return batchParsed[i].Number < batchParsed[j].Number
-	})
-	for _, e := range batchParsed {
-		ep.eventsQueue <- e
-	}
-	return batchParsed[:0]
-}
-
-func (ep *EventsParserBatched) handler(conn net.Conn) {
-	defer conn.Close()
-	ep.mx.RLock()
-	maxBuffSize := ep.maxBuffSize
-	maxBatchSize := ep.maxBatchSize
-	readTimeoutMs := ep.readTimeoutMs
-	shutdownEvent := ep.shutdownEvent
-	ep.mx.RUnlock()
-	parsedEventsChan := make(chan *event.Event, maxBatchSize)
-	go func() {
-		defer conn.Close()
-		buff := make([]byte, maxBuffSize)
-		streamParser := StringStreamParser{Delim: '\n'}
-		for {
-			read_len, err := conn.Read(buff)
-			if err != nil {
-				glog.V(0).Infof("INFO: Events connection closed: %v\n", err)
-				parsedEventsChan <- &shutdownEvent
-				return
-			}
-			batch := streamParser.Parse(buff[:read_len])
-			glog.V(1).Infof("DEBUG: read %v bytes; parsed %v events\n", read_len, len(batch))
-			for _, ev := range batch {
-				parsedEvent, err := event.NewEvent(ev)
-				if err != nil {
-					glog.V(0).Infof("ERROR: processing event `%v`: `%v`\n", ev, err)
-					continue
-				}
-				parsedEventsChan <- parsedEvent
-			}
-		}
-	}()
-	batchParsed := make([]*event.Event, 0)
-	timer := time.After(readTimeoutMs)
-	var parsedEvent *event.Event
-	for {
-		select {
-		case parsedEvent = <-parsedEventsChan:
-			if parsedEvent.MsgType == event.ServerShutdown {
-				ep.eventsQueue <- parsedEvent
-				return
-			}
-			batchParsed = append(batchParsed, parsedEvent)
-			if len(batchParsed) == maxBatchSize {
-				batchParsed = ep.sortAndSend(batchParsed)
-			}
-		case <-timer:
-			if len(batchParsed) > 0 {
-				batchParsed = ep.sortAndSend(batchParsed)
-			}
-			timer = time.After(readTimeoutMs)
-		default:
-			time.Sleep(1 * time.Millisecond)
-		}
 	}
 }

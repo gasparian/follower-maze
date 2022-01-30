@@ -5,7 +5,6 @@ import (
 	"runtime"
 
 	"github.com/BurntSushi/toml"
-	"github.com/gasparian/follower-maze/internal/event"
 	"github.com/gasparian/follower-maze/internal/server"
 	"github.com/golang/glog"
 )
@@ -29,26 +28,14 @@ func main() {
 
 	runtime.GOMAXPROCS(config.Runtime.MaxProcs)
 
-	var eventsServer server.EventsServer[*event.Event]
-	if config.Events.Batched {
-		eventsServer = server.NewEventsParserBatched(
-			config.Events.MaxBuffSizeBytes,
-			config.Events.MaxBatchSize,
-			config.Events.EventsQueueMaxSize,
-			config.Events.ReadTimeoutMs,
-			config.Events.Port,
-		)
-	} else {
-		eventsServer = server.NewEventsParserPQueue(
-			config.Events.MaxBuffSizeBytes,
-			config.Events.EventsQueueMaxSize,
-			config.Events.Port,
-		)
-	}
-
+	eventsServer := server.NewEventsParserPQueue(
+		config.Events.MaxBuffSizeBytes,
+		config.Events.EventsQueueMaxSize,
+		config.Events.Port,
+	)
 	clientServer := server.NewClientAcceptor(
 		config.Client.MaxBuffSizeBytes,
-		config.Client.SendEventsQueueMaxSize,
+		config.Client.EventsQueueMaxSize,
 		config.Client.Port,
 	)
 

@@ -61,7 +61,9 @@ func (ca *ClientAcceptor) Stop() {
 	ca.server.Stop()
 }
 
-// serveClients
+// serveClients sends events in clients' sockets
+// one by one
+// TODO: add worker pool here to speed up the process
 func (ca *ClientAcceptor) serveClients() {
 	var clientReqBuff bytes.Buffer
 	var clientReq *follower.Request

@@ -112,15 +112,6 @@ func testEventsParser(t *testing.T, port string, ep EventsServer[*event.Event]) 
 	}
 }
 
-func TestEventsParserBatched(t *testing.T) {
-	port := ":1126"
-	ep := NewEventsParserBatched(128, 3, 6, 100, port)
-	go ep.Start()
-	defer ep.Stop()
-	time.Sleep(timeoutMs)
-	testEventsParser(t, port, ep)
-}
-
 func TestEventsParserPQueue(t *testing.T) {
 	port := ":1127"
 	ep := NewEventsParserPQueue(128, 3, port)
