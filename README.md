@@ -12,7 +12,7 @@ My solution is based on creating two separate socket servers:
  - for accepting clients connections;  
  - for working with a single event source connection;  
 
-Those server are merged under the `FollowerServer` structure, which handles all the communication between them.  
+These servers are merged under the `FollowerServer`, which handles all the communication between them.  
 After accepting new client connection, client server creates channel associated with that new client, puts this channel to the queue which `FollowerServer` listens, and starts listen for events from that channel. And when the event occurs - it writes this event to this client's socket.  
 After `FollowerServer` "sees" new client - it "registers" it by adding new client to special map, where client channels and followers are being stored.  
 Events server just listens to the incoming events, parses them and puts in the priority queue, based on event id.  
