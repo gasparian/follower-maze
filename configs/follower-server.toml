@@ -1,12 +1,12 @@
 [runtime]
-max_procs = 4
+max_procs = 2
 
 [events]
 port = ":9090"
 max_buff_size_bytes = 16384
-events_queue_max_size = 500000
+events_queue_max_size = 10000
 
 [client]
 port = ":9099"
 max_buff_size_bytes = 16
-events_queue_max_size = 10000
+events_queue_max_size = 1000

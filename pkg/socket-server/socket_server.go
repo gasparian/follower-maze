@@ -6,7 +6,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
-	"time"
 )
 
 // ConnCheck returns error if the passed connection doesn't work
@@ -92,14 +91,10 @@ func (ss *TCPSocketServer) addConnStopSignal(connStopSignal chan bool) {
 }
 
 func connListenStopSignal(conn net.Conn, connStopSignal chan bool) {
-	for {
-		select {
-		case <-connStopSignal:
-			conn.Close()
-			return
-		default:
-			time.Sleep(5 * time.Millisecond)
-		}
+	select {
+	case <-connStopSignal:
+		conn.Close()
+		return
 	}
 }
 

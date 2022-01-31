@@ -5,9 +5,6 @@
 This is a solution for soundcloud backend developers challenge. Check out instructions in `/simulator` folder.  
 In short - the one should develop socket server that distributes events from the event source to clients in real time.  
 
-My current solution processes 10kk events (simulator's default) in 400 sec., which translates to the **~25k** RPS on average.  
-If simulator configured to spawn 10x more concurrent users (100 --> 1000), RPS drops ~10x times respectively to **~2.5k**.  
-
 My solution is based on creating two separate socket servers:  
  - for accepting clients connections;  
  - for working with a single event source connection;  
@@ -20,6 +17,10 @@ Events server just listens to the incoming events, parses them and puts in the p
 All these servers and listeners running in separate goroutines.  
 
 Check the code for more info. You should start "unraveling" from the `follower_server.go`.  
+
+My current solution processes 10kk events (simulator's default) in ~400 sec., which translates to the **~25k** RPS on average.  
+If simulator configured to spawn 10x more concurrent users (100 --> 1000), RPS drops ~10x times respectively to **~2.5k**.  
+All the application params listed in the config file `/config/follower-server.toml`. Seems like for the current implementation 2 CPUs is enough for GO runtime. But I think it could be due the poor usage of multithreading and/or some unoptimal code.  
 
 ### How to run  
 
