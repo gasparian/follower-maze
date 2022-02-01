@@ -47,65 +47,6 @@ func NewFollowerServer(
 	return fs
 }
 
-func (fs *FollowerServer) addFollower(clientID, followerId uint64) {
-	_, ok := fs.clients[followerId]
-	if !ok {
-		glog.V(1).Infof("DEBUG: adding the follower: client `%v` does not connected\n", clientID)
-		return
-	}
-	followers, ok := fs.followers[clientID]
-	if !ok {
-		followers = make(map[uint64]bool)
-		fs.followers[clientID] = followers
-	}
-	followers[followerId] = true
-}
-
-func (fs *FollowerServer) removeFollower(clientID, followerId uint64) {
-	followers, ok := fs.followers[clientID]
-	if !ok {
-		glog.V(1).Infof("DEBUG: removing the follower: client `%v` does not connected\n", clientID)
-		return
-	}
-	delete(followers, followerId)
-}
-
-// processEvent sends event to the clients channels
-// depending on event type
-func (fs *FollowerServer) processEvent(e *event.Event) {
-	if e == nil {
-		return
-	}
-	fs.mx.Lock()
-	defer fs.mx.Unlock()
-	if e.MsgType == event.ServerShutdown {
-		fs.cleanState()
-	} else if e.MsgType == event.Broadcast {
-		glog.V(1).Infoln("DEBUG: BROADCAST", e.Number)
-		for clientID := range fs.clients {
-			fs.sendEvent(clientID, e.Raw)
-		}
-	} else if e.MsgType == event.Follow && e.FromUserID > 0 && e.ToUserID > 0 {
-		fs.addFollower(e.ToUserID, e.FromUserID)
-		fs.sendEvent(e.ToUserID, e.Raw)
-		glog.V(1).Infoln("DEBUG: FOLLOW: ", e.Number, e.ToUserID, e.FromUserID)
-	} else if e.MsgType == event.PrivateMsg && e.FromUserID > 0 && e.ToUserID > 0 {
-		fs.sendEvent(e.ToUserID, e.Raw)
-	} else if e.MsgType == event.StatusUpdate && e.FromUserID > 0 {
-		followers, ok := fs.followers[e.FromUserID]
-		glog.V(1).Infoln("DEBUG: STATUS UPDATE: ", e.Number, e.FromUserID, followers)
-		if !ok {
-			glog.V(1).Infof("DEBUG: getting the followers: client `%v` does not connected\n", e.FromUserID)
-			return
-		}
-		for clientID := range followers {
-			fs.sendEvent(clientID, e.Raw)
-		}
-	} else if e.MsgType == event.Unfollow && e.FromUserID > 0 && e.ToUserID > 0 {
-		fs.removeFollower(e.ToUserID, e.FromUserID)
-	}
-}
-
 func (fs *FollowerServer) registerClient(c *follower.Client) {
 	if c == nil {
 		return
@@ -116,37 +57,16 @@ func (fs *FollowerServer) registerClient(c *follower.Client) {
 	fs.followers[c.ID] = make(map[uint64]bool)
 }
 
+// dropClient deletes client from both maps: with
+// clients and it's followers
+// should be protected by mutex
 func (fs *FollowerServer) dropClient(clientID uint64) {
-	fs.mx.Lock()
-	defer fs.mx.Unlock()
 	delete(fs.clients, clientID)
-}
-
-func (fs *FollowerServer) dropFollowers(clientID uint64) {
-	fs.mx.Lock()
-	defer fs.mx.Unlock()
 	delete(fs.followers, clientID)
 }
 
-func (fs *FollowerServer) dropClientsAll() {
-	fs.mx.Lock()
-	defer fs.mx.Unlock()
-	for clientID := range fs.clients {
-		delete(fs.followers, clientID)
-	}
-}
-
-func (fs *FollowerServer) dropFollowersAll() {
-	for id := range fs.followers {
-		fs.dropFollowers(id)
-	}
-}
-
-func (fs *FollowerServer) cleanState() {
-	fs.dropClientsAll()
-	fs.dropFollowersAll()
-}
-
+// sendEvent puts event in the client's channel
+// should be protected by mutex
 func (fs *FollowerServer) sendEvent(clientID uint64, eventRaw string) {
 	reqChan, ok := fs.clients[clientID]
 	if !ok {
@@ -162,6 +82,99 @@ func (fs *FollowerServer) sendEvent(clientID uint64, eventRaw string) {
 	if err != nil {
 		fs.dropClient(clientID)
 		glog.V(0).Infof("WARNING: Dropping client `%v` with error: %v\n", clientID, err)
+	}
+}
+
+func (fs *FollowerServer) cleanState() {
+	fs.mx.Lock()
+	defer fs.mx.Unlock()
+	for clientID := range fs.clients {
+		fs.dropClient(clientID)
+	}
+}
+
+func (fs *FollowerServer) broadcast(e *event.Event) {
+	glog.V(1).Infoln("DEBUG: BROADCAST", e.Number)
+	fs.mx.Lock()
+	defer fs.mx.Unlock()
+	for clientID := range fs.clients {
+		fs.sendEvent(clientID, e.Raw)
+	}
+}
+
+// addFollower adds new follower to the followers map
+// should be protected by mutex
+func (fs *FollowerServer) addFollower(clientID, followerID uint64) {
+	_, ok := fs.clients[followerID]
+	if !ok {
+		glog.V(1).Infof("DEBUG: adding the follower: client `%v` does not connected\n", clientID)
+		return
+	}
+	followers, ok := fs.followers[clientID]
+	if !ok {
+		followers = make(map[uint64]bool)
+		fs.followers[clientID] = followers
+	}
+	followers[followerID] = true
+}
+
+func (fs *FollowerServer) follow(e *event.Event) {
+	glog.V(1).Infoln("DEBUG: FOLLOW: ", e.Number, e.ToUserID, e.FromUserID)
+	fs.mx.Lock()
+	defer fs.mx.Unlock()
+	fs.addFollower(e.ToUserID, e.FromUserID)
+	fs.sendEvent(e.ToUserID, e.Raw)
+}
+
+func (fs *FollowerServer) privateMsg(e *event.Event) {
+	fs.mx.Lock()
+	defer fs.mx.Unlock()
+	fs.sendEvent(e.ToUserID, e.Raw)
+}
+
+func (fs *FollowerServer) statusUpdate(e *event.Event) {
+	fs.mx.Lock()
+	defer fs.mx.Unlock()
+	followers, ok := fs.followers[e.FromUserID]
+	glog.V(1).Infoln("DEBUG: STATUS UPDATE: ", e.Number, e.FromUserID, len(followers))
+	if !ok {
+		glog.V(1).Infof("DEBUG: getting the followers: client `%v` does not connected\n", e.FromUserID)
+		return
+	}
+	for clientID := range followers {
+		fs.sendEvent(clientID, e.Raw)
+	}
+}
+
+func (fs *FollowerServer) removeFollower(clientID, followerID uint64) {
+	fs.mx.Lock()
+	defer fs.mx.Unlock()
+	followers, ok := fs.followers[clientID]
+	if !ok {
+		glog.V(1).Infof("DEBUG: removing the follower: client `%v` does not connected\n", clientID)
+		return
+	}
+	delete(followers, followerID)
+}
+
+// processEvent sends event to the clients channels
+// depending on event type
+func (fs *FollowerServer) processEvent(e *event.Event) {
+	if e == nil {
+		return
+	}
+	if e.MsgType == event.ServerShutdown {
+		fs.cleanState()
+	} else if e.MsgType == event.Broadcast {
+		fs.broadcast(e)
+	} else if e.MsgType == event.Follow && e.FromUserID > 0 && e.ToUserID > 0 {
+		fs.follow(e)
+	} else if e.MsgType == event.PrivateMsg && e.FromUserID > 0 && e.ToUserID > 0 {
+		fs.privateMsg(e)
+	} else if e.MsgType == event.StatusUpdate && e.FromUserID > 0 {
+		fs.statusUpdate(e)
+	} else if e.MsgType == event.Unfollow && e.FromUserID > 0 && e.ToUserID > 0 {
+		fs.removeFollower(e.ToUserID, e.FromUserID)
 	}
 }
 
@@ -209,8 +222,7 @@ func (fs *FollowerServer) Start() {
 	go fs.clientServer.Start()
 	go fs.eventsServer.Start()
 	go fs.listenClients()
-	go fs.listenEvents()
-	select {}
+	fs.listenEvents()
 }
 
 // Stop shuts down FollowerServer
