@@ -2,6 +2,7 @@
 !/**/
 !*.*
 !Makefile
+!.githooks
 
 # Binaries for programs and plugins
 *.exe
